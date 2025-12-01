@@ -207,7 +207,27 @@ function learn() {
 
     const solution = prompt(`Was heißt "${entry.de}" auf Spanisch?`);
 
-    if (solution && solution.toLowerCase().trim() === entry.es.toLowerCase().trim()) {
+    // 👉 Fall 1: Benutzer klickt "Abbrechen" → NICHTS zählt
+    if (solution === null) {
+        // timesShown lassen wir trotzdem erhöht (du hast es gesehen),
+        // aber keine Wertung richtig/falsch.
+        alert("Abgebrochen – diese Vokabel wurde nicht gewertet.");
+        saveVocab();
+        return;
+    }
+
+    const trimmed = solution.toLowerCase().trim();
+
+    // 👉 Fall 2: Benutzer drückt "OK" ohne Text → "Weiß ich nicht"
+    if (trimmed === "") {
+        alert(`Okay, du wusstest es nicht. Richtig wäre: ${entry.es}`);
+        s.wrong = (s.wrong || 0) + 1;
+        saveVocab();
+        return;
+    }
+
+    // 👉 Fall 3: normale Auswertung
+    if (trimmed === entry.es.toLowerCase().trim()) {
         alert("Richtig! ✅");
         s.correct = (s.correct || 0) + 1;
     } else {
