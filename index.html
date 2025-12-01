@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8" />
+    <title>Vokabeltrainer</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 20px;
+            background: #f5f5f5;
+        }
+
+        h1 {
+            text-align: center;
+        }
+
+        .card {
+            background: white;
+            padding: 15px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+
+        label {
+            font-weight: bold;
+        }
+
+        input {
+            width: 200px;
+            padding: 6px;
+            margin-right: 10px;
+            margin-top: 5px;
+        }
+
+        button {
+            padding: 8px 12px;
+            margin-top: 10px;
+            background: #0078ff;
+            border: none;
+            color: white;
+            cursor: pointer;
+            border-radius: 6px;
+            font-size: 14px;
+        }
+
+        button:hover {
+            background: #005fcc;
+        }
+
+        #aiStatus {
+            margin-top: 10px;
+            font-style: italic;
+            color: #333;
+        }
+
+        #stats {
+            font-weight: bold;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+
+<body>
+    <h1>Vokabeltrainer</h1>
+
+    <!-- Manuelles Hinzufügen -->
+    <div class="card">
+        <h2>Vokabel hinzufügen</h2>
+        <label>Deutsch:</label><br />
+        <input id="inputDe" type="text" placeholder="Haus" /><br />
+
+        <label>Spanisch:</label><br />
+        <input id="inputEs" type="text" placeholder="casa" /><br />
+
+        <button id="btnAdd">Hinzufügen</button>
+    </div>
+
+    <!-- Lernen -->
+    <div class="card">
+        <h2>Lernen</h2>
+        <button id="btnLearn">Zufällige Vokabel üben</button>
+    </div>
+
+    <!-- KI-Vokabelvorschläge -->
+    <div class="card">
+        <h2>KI-Vokabeln generieren</h2>
+
+        <label>Thema:</label><br />
+        <input id="aiTopic" type="text" placeholder="Essen, Haushalt, Reisen ..." /><br />
+
+        <label>Anzahl:</label><br />
+        <input id="aiCount" type="number" min="1" max="50" value="10" /><br />
+
+        <button id="btnAi">KI-Vokabeln hinzufügen</button>
+
+        <div id="aiStatus"></div>
+    </div>
+
+    <!-- Statistik -->
+    <div class="card">
+        <h2>Statistik</h2>
+        <div id="stats">Gesamt: 0</div>
+    </div>
+
+    <!-- App-Script -->
+    <script src="app.js"></script>
+</body>
+</html>
