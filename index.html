@@ -55,6 +55,14 @@
             background: #005fcc;
         }
 
+        #btnOral {
+            background: #ff8800;
+        }
+
+        #btnOral:hover:not(:disabled) {
+            background: #e06f00;
+        }
+
         #aiStatus {
             margin-top: 10px;
             font-style: italic;
@@ -119,9 +127,10 @@
 
         <div>
             <button id="btnStartStack">Stapel (10 Karten) starten</button>
-            <button id="btnCheck" disabled>Antwort prüfen</button>
+            <button id="btnCheck" disabled>Antwort prüfen (Gewusst)</button>
             <button id="btnDontKnow" disabled>Weiß ich nicht</button>
             <button id="btnSkip" disabled>Überspringen</button>
+            <button id="btnOral" disabled>Mündliche Abfrage</button>
         </div>
 
         <div id="learnInfo"></div>
