@@ -14,9 +14,12 @@ let learnStack = [];       // Array von Indizes in vocabList
 let learnStackPos = -1;    // Position im Stapel
 let currentEntry = null;   // aktuell abgefragte Vokabel
 
+// Mündliche Abfrage
+let oralMode = false;          // true = Mündliche Abfrage aktiv
+let oralSolutionShown = false; // ob für aktuelle Karte die Lösung gezeigt wurde
+
 // ---------------------
 // Session-Verwaltung
-// Jede Seite-Öffnung = neue Lern-Einheit
 // ---------------------
 function initSession() {
     const key = "vocabSessionId";
@@ -28,7 +31,7 @@ function initSession() {
 }
 
 // ---------------------
-// Stats-Struktur sicherstellen
+// Stats-Struktur
 // ---------------------
 function initStatsForEntry(entry) {
     if (!entry.stats) entry.stats = {};
@@ -65,7 +68,7 @@ function saveVocab() {
 }
 
 // ---------------------
-// Vokabel-Tabelle rendern (alphabetisch nach Spanisch)
+// Vokabel-Tabelle rendern
 // ---------------------
 function renderVocabTable() {
     const tbody = document.getElementById("vocabTableBody");
@@ -121,11 +124,10 @@ function refreshStats() {
     if (statsEl) {
         statsEl.innerText = `Gesamt: ${total}`;
     }
-    // Liste immer mitaktualisieren
     renderVocabTable();
 }
 
-// Hilfsfunktion, um eine neue Vokabel mit Stats anzulegen
+// neue Vokabel mit Stats
 function createEntry(de, es) {
     return {
         de,
@@ -157,7 +159,6 @@ function addWord() {
         return;
     }
 
-    // Duplikate nach deutschem Wort verhindern
     const key = de.toLowerCase();
     const exists = vocabList.some(entry => entry.de.toLowerCase() === key);
     if (exists) {
@@ -176,7 +177,6 @@ function addWord() {
 // ---------------------
 // Lernmodus – adaptiver Stapel
 // ---------------------
-
 function chooseNextEntryIndex() {
     if (!vocabList || vocabList.length === 0) return null;
 
@@ -230,7 +230,6 @@ function chooseNextEntryIndex() {
     return advancedPool[advancedPool.length - 1].index;
 }
 
-// Lernstapel aufbauen (bis zu 10 einzigartige Indizes)
 function buildLearnStack(size = 10) {
     const used = new Set();
     const stack = [];
@@ -257,10 +256,12 @@ function updateLearnButtonsState(active) {
     const btnCheck = document.getElementById("btnCheck");
     const btnDontKnow = document.getElementById("btnDontKnow");
     const btnSkip = document.getElementById("btnSkip");
+    const btnOral = document.getElementById("btnOral");
 
     if (btnCheck) btnCheck.disabled = !active;
     if (btnDontKnow) btnDontKnow.disabled = !active;
     if (btnSkip) btnSkip.disabled = !active;
+    if (btnOral) btnOral.disabled = !active;
 }
 
 function showCurrentCard() {
@@ -269,6 +270,8 @@ function showCurrentCard() {
     const infoEl = document.getElementById("learnInfo");
 
     if (!questionEl || !inputEl || !infoEl) return;
+
+    oralSolutionShown = false; // bei neuer Karte
 
     if (!learnStack || learnStack.length === 0) {
         questionEl.innerText = "Noch kein Lernstapel gestartet.";
@@ -305,7 +308,9 @@ function showCurrentCard() {
     questionEl.innerText = `Karte ${learnStackPos + 1} von ${learnStack.length}: Was heißt „${entry.de}“ auf Spanisch?`;
     inputEl.value = "";
     inputEl.focus();
-    infoEl.innerText = "Gib deine Antwort ein, oder klicke auf „Weiß ich nicht“ oder „Überspringen“.";
+    infoEl.innerText = oralMode
+        ? "Mündliche Abfrage: Denk dir die Übersetzung und klicke dann auf „Mündliche Abfrage“, um die Lösung zu sehen."
+        : "Gib deine Antwort ein oder nutze „Weiß ich nicht“ / „Überspringen“.";
 
     updateLearnButtonsState(true);
 }
@@ -327,7 +332,13 @@ function startLearnStack() {
     showCurrentCard();
 }
 
-// Antwort prüfen
+// nach Bewertung zur nächsten Karte
+function goToNextCard() {
+    learnStackPos++;
+    showCurrentCard();
+}
+
+// Antwort prüfen (Schriftlich oder als „Gewusst“ in mündlicher Abfrage)
 function checkAnswer() {
     if (!currentEntry) {
         alert("Kein aktuelles Wort – starte zuerst einen Lernstapel.");
@@ -339,13 +350,24 @@ function checkAnswer() {
 
     if (!inputEl || !infoEl) return;
 
+    const s = currentEntry.stats;
+
+    if (oralMode) {
+        // mündliche Abfrage: „Gewusst“
+        s.correct = (s.correct || 0) + 1;
+        infoEl.innerText = `Als gewusst markiert. Richtig wäre: ${currentEntry.es}`;
+        saveVocab();
+        refreshStats();
+        goToNextCard();
+        return;
+    }
+
     const given = inputEl.value.toLowerCase().trim();
     if (given === "") {
         infoEl.innerText = "Bitte eine Antwort eingeben oder „Weiß ich nicht“ wählen.";
         return;
     }
 
-    const s = currentEntry.stats;
     const correctSolution = currentEntry.es.toLowerCase().trim();
 
     if (given === correctSolution) {
@@ -358,9 +380,10 @@ function checkAnswer() {
 
     saveVocab();
     refreshStats();
+    goToNextCard();
 }
 
-// Weiß ich nicht → falsch werten, Lösung anzeigen
+// Weiß ich nicht → falsch, Lösung anzeigen, nächste Karte
 function dontKnow() {
     if (!currentEntry) {
         alert("Kein aktuelles Wort – starte zuerst einen Lernstapel.");
@@ -376,20 +399,41 @@ function dontKnow() {
     infoEl.innerText = `Okay, du wusstest es nicht. Richtig wäre: ${currentEntry.es}`;
     saveVocab();
     refreshStats();
+    goToNextCard();
 }
 
-// Überspringen → nichts werten, nur zur nächsten Karte
+// Überspringen → nichts werten, nur weiter
 function skipCard() {
     if (!learnStack || learnStack.length === 0) {
         alert("Kein Lernstapel aktiv.");
         return;
     }
-    learnStackPos++;
-    showCurrentCard();
+    goToNextCard();
+}
+
+// Mündliche Abfrage: Lösung ein-/ausblenden
+function oralShowSolution() {
+    if (!currentEntry) {
+        alert("Kein aktuelles Wort – starte zuerst einen Lernstapel.");
+        return;
+    }
+
+    const infoEl = document.getElementById("learnInfo");
+    if (!infoEl) return;
+
+    oralMode = true;
+
+    if (!oralSolutionShown) {
+        infoEl.innerText = `Lösung: ${currentEntry.es}\nMarkiere danach mit „Antwort prüfen (Gewusst)“ oder „Weiß ich nicht“.`;
+        oralSolutionShown = true;
+    } else {
+        // falls man klicken will, ohne zu wechseln – einfach nochmal Hinweis
+        infoEl.innerText = `Lösung: ${currentEntry.es}\nNutze jetzt „Antwort prüfen (Gewusst)“ oder „Weiß ich nicht“.`;
+    }
 }
 
 // ---------------------
-// KI-Vokabeln abrufen – mit Duplikat-Schutz & Wiederholungen
+// KI-Vokabeln abrufen
 // ---------------------
 async function fetchAiVocab() {
     const topicInput = document.getElementById("aiTopic");
@@ -487,6 +531,7 @@ window.addEventListener("DOMContentLoaded", () => {
     const btnCheck = document.getElementById("btnCheck");
     const btnDontKnow = document.getElementById("btnDontKnow");
     const btnSkip = document.getElementById("btnSkip");
+    const btnOral = document.getElementById("btnOral");
     const btnAi = document.getElementById("btnAi");
 
     if (btnAdd) btnAdd.addEventListener("click", addWord);
@@ -494,6 +539,7 @@ window.addEventListener("DOMContentLoaded", () => {
     if (btnCheck) btnCheck.addEventListener("click", checkAnswer);
     if (btnDontKnow) btnDontKnow.addEventListener("click", dontKnow);
     if (btnSkip) btnSkip.addEventListener("click", skipCard);
+    if (btnOral) btnOral.addEventListener("click", oralShowSolution);
     if (btnAi) btnAi.addEventListener("click", fetchAiVocab);
 
     updateLearnButtonsState(false);
