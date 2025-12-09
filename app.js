@@ -1,6 +1,6 @@
 console.log("app.js wurde geladen!");
 
-// Backend-URL (läuft im selben Server)
+// Backend-URL (läuft im selben Server, bei Render auch)
 const AI_BACKEND_URL = "/ai-vocab";
 
 // ---------------------
@@ -8,6 +8,11 @@ const AI_BACKEND_URL = "/ai-vocab";
 // ---------------------
 let vocabList = [];
 let currentSessionId = 0;
+
+// Lernstapel
+let learnStack = [];       // Array von Indizes in vocabList
+let learnStackPos = -1;    // Position im Stapel
+let currentEntry = null;   // aktuell abgefragte Vokabel
 
 // ---------------------
 // Session-Verwaltung
@@ -42,7 +47,9 @@ function initStatsForEntry(entry) {
 function loadVocab() {
     try {
         const raw = JSON.parse(localStorage.getItem("vocabList") || "[]");
-        vocabList = raw.map(initStatsForEntry);
+        vocabList = raw
+            .filter(entry => entry && typeof entry.de === "string" && typeof entry.es === "string")
+            .map(initStatsForEntry);
     } catch (e) {
         console.error("Fehler beim Laden der Vokabeln:", e);
         vocabList = [];
@@ -57,12 +64,65 @@ function saveVocab() {
     }
 }
 
+// ---------------------
+// Vokabel-Tabelle rendern (alphabetisch nach Spanisch)
+// ---------------------
+function renderVocabTable() {
+    const tbody = document.getElementById("vocabTableBody");
+    if (!tbody) return;
+
+    tbody.innerHTML = "";
+
+    if (!vocabList || vocabList.length === 0) {
+        return;
+    }
+
+    const sorted = [...vocabList].sort((a, b) => {
+        const esA = (a.es || "").toLowerCase();
+        const esB = (b.es || "").toLowerCase();
+        return esA.localeCompare(esB, "es");
+    });
+
+    sorted.forEach((entry, idx) => {
+        const tr = document.createElement("tr");
+
+        const tdIndex = document.createElement("td");
+        tdIndex.textContent = String(idx + 1);
+
+        const tdEs = document.createElement("td");
+        tdEs.textContent = entry.es || "";
+
+        const tdDe = document.createElement("td");
+        tdDe.textContent = entry.de || "";
+
+        const s = entry.stats || {};
+        const tdShown = document.createElement("td");
+        const tdCorrect = document.createElement("td");
+        const tdWrong = document.createElement("td");
+
+        tdShown.textContent = s.timesShown || 0;
+        tdCorrect.textContent = s.correct || 0;
+        tdWrong.textContent = s.wrong || 0;
+
+        tr.appendChild(tdIndex);
+        tr.appendChild(tdEs);
+        tr.appendChild(tdDe);
+        tr.appendChild(tdShown);
+        tr.appendChild(tdCorrect);
+        tr.appendChild(tdWrong);
+
+        tbody.appendChild(tr);
+    });
+}
+
 function refreshStats() {
     const total = vocabList.length;
     const statsEl = document.getElementById("stats");
     if (statsEl) {
         statsEl.innerText = `Gesamt: ${total}`;
     }
+    // Liste immer mitaktualisieren
+    renderVocabTable();
 }
 
 // Hilfsfunktion, um eine neue Vokabel mit Stats anzulegen
@@ -114,10 +174,9 @@ function addWord() {
 }
 
 // ---------------------
-// Lernmodus – adaptiv
+// Lernmodus – adaptiver Stapel
 // ---------------------
 
-// 1. Nächste Vokabel auswählen
 function chooseNextEntryIndex() {
     if (!vocabList || vocabList.length === 0) return null;
 
@@ -130,30 +189,23 @@ function chooseNextEntryIndex() {
         const uniqueSessions = sessions.length;
 
         if (uniqueSessions < 3) {
-            // Phase 1: Jedes Wort soll mind. in 3 verschiedenen Sessions vorkommen
             initialPool.push({ entry, index, uniqueSessions });
         } else {
-            // Phase 2: adaptives Wiederholen
             advancedPool.push({ entry, index });
         }
     });
 
-    // Phase 1: Vokabeln, die noch nicht in 3 verschiedenen Sitzungen dran waren
     if (initialPool.length > 0) {
-        // Bevorzuge diejenigen mit den wenigsten Sessions
         const minSessions = Math.min(...initialPool.map(i => i.uniqueSessions));
         const candidates = initialPool.filter(i => i.uniqueSessions === minSessions);
         const pick = candidates[Math.floor(Math.random() * candidates.length)];
         return pick.index;
     }
 
-    // Phase 2: Alle haben 3 Sitzungen geschafft → jetzt nach Fehlern gewichten
     if (advancedPool.length === 0) {
         return null;
     }
 
-    // Gewichtung: häufig falsch -> hohe Wahrscheinlichkeit,
-    // häufig richtig -> geringere Wahrscheinlichkeit
     let totalWeight = 0;
     const weights = advancedPool.map(item => {
         const s = item.entry.stats;
@@ -161,7 +213,7 @@ function chooseNextEntryIndex() {
         const correct = s.correct || 0;
 
         let weight = 1 + wrong * 2 - correct * 0.5;
-        if (weight < 0.2) weight = 0.2; // nie ganz verschwinden lassen
+        if (weight < 0.2) weight = 0.2;
 
         totalWeight += weight;
         return weight;
@@ -175,67 +227,165 @@ function chooseNextEntryIndex() {
         }
     }
 
-    // Fallback
     return advancedPool[advancedPool.length - 1].index;
 }
 
-// 2. Lernen starten (ein Durchgang)
-function learn() {
-    if (!vocabList || vocabList.length === 0) {
-        alert("Keine Vokabeln vorhanden!");
+// Lernstapel aufbauen (bis zu 10 einzigartige Indizes)
+function buildLearnStack(size = 10) {
+    const used = new Set();
+    const stack = [];
+
+    if (!vocabList || vocabList.length === 0) return [];
+
+    const maxCards = Math.min(size, vocabList.length);
+    let safety = 0;
+
+    while (stack.length < maxCards && safety < 200) {
+        const idx = chooseNextEntryIndex();
+        if (idx === null) break;
+        if (!used.has(idx)) {
+            used.add(idx);
+            stack.push(idx);
+        }
+        safety++;
+    }
+
+    return stack;
+}
+
+function updateLearnButtonsState(active) {
+    const btnCheck = document.getElementById("btnCheck");
+    const btnDontKnow = document.getElementById("btnDontKnow");
+    const btnSkip = document.getElementById("btnSkip");
+
+    if (btnCheck) btnCheck.disabled = !active;
+    if (btnDontKnow) btnDontKnow.disabled = !active;
+    if (btnSkip) btnSkip.disabled = !active;
+}
+
+function showCurrentCard() {
+    const questionEl = document.getElementById("learnQuestion");
+    const inputEl = document.getElementById("learnInput");
+    const infoEl = document.getElementById("learnInfo");
+
+    if (!questionEl || !inputEl || !infoEl) return;
+
+    if (!learnStack || learnStack.length === 0) {
+        questionEl.innerText = "Noch kein Lernstapel gestartet.";
+        inputEl.value = "";
+        infoEl.innerText = "";
+        updateLearnButtonsState(false);
+        currentEntry = null;
         return;
     }
 
-    const idx = chooseNextEntryIndex();
-    if (idx === null) {
-        alert("Keine Vokabel gefunden (unerwartet).");
+    if (learnStackPos < 0 || learnStackPos >= learnStack.length) {
+        questionEl.innerText = "Stapel abgeschlossen! Du kannst einen neuen Stapel starten.";
+        inputEl.value = "";
+        infoEl.innerText = "";
+        updateLearnButtonsState(false);
+        currentEntry = null;
         return;
     }
 
+    const idx = learnStack[learnStackPos];
     const entry = vocabList[idx];
-    const s = entry.stats;
+    currentEntry = entry;
 
-    // Anzeigen & Session-Tracking
+    const s = entry.stats;
     s.timesShown = (s.timesShown || 0) + 1;
     if (!Array.isArray(s.sessions)) s.sessions = [];
     if (!s.sessions.includes(currentSessionId)) {
         s.sessions.push(currentSessionId);
     }
     s.lastSession = currentSessionId;
+    saveVocab();
+    refreshStats();
 
-    saveVocab(); // Zwischenstand sichern
+    questionEl.innerText = `Karte ${learnStackPos + 1} von ${learnStack.length}: Was heißt „${entry.de}“ auf Spanisch?`;
+    inputEl.value = "";
+    inputEl.focus();
+    infoEl.innerText = "Gib deine Antwort ein, oder klicke auf „Weiß ich nicht“ oder „Überspringen“.";
 
-    const solution = prompt(`Was heißt "${entry.de}" auf Spanisch?`);
+    updateLearnButtonsState(true);
+}
 
-    // 👉 Fall 1: Benutzer klickt "Abbrechen" → NICHTS zählt
-    if (solution === null) {
-        // timesShown lassen wir trotzdem erhöht (du hast es gesehen),
-        // aber keine Wertung richtig/falsch.
-        alert("Abgebrochen – diese Vokabel wurde nicht gewertet.");
-        saveVocab();
+function startLearnStack() {
+    if (!vocabList || vocabList.length === 0) {
+        alert("Keine Vokabeln vorhanden!");
         return;
     }
 
-    const trimmed = solution.toLowerCase().trim();
+    learnStack = buildLearnStack(10);
 
-    // 👉 Fall 2: Benutzer drückt "OK" ohne Text → "Weiß ich nicht"
-    if (trimmed === "") {
-        alert(`Okay, du wusstest es nicht. Richtig wäre: ${entry.es}`);
-        s.wrong = (s.wrong || 0) + 1;
-        saveVocab();
+    if (!learnStack || learnStack.length === 0) {
+        alert("Keine Vokabeln für den Lernstapel gefunden.");
         return;
     }
 
-    // 👉 Fall 3: normale Auswertung
-    if (trimmed === entry.es.toLowerCase().trim()) {
-        alert("Richtig! ✅");
+    learnStackPos = 0;
+    showCurrentCard();
+}
+
+// Antwort prüfen
+function checkAnswer() {
+    if (!currentEntry) {
+        alert("Kein aktuelles Wort – starte zuerst einen Lernstapel.");
+        return;
+    }
+
+    const inputEl = document.getElementById("learnInput");
+    const infoEl = document.getElementById("learnInfo");
+
+    if (!inputEl || !infoEl) return;
+
+    const given = inputEl.value.toLowerCase().trim();
+    if (given === "") {
+        infoEl.innerText = "Bitte eine Antwort eingeben oder „Weiß ich nicht“ wählen.";
+        return;
+    }
+
+    const s = currentEntry.stats;
+    const correctSolution = currentEntry.es.toLowerCase().trim();
+
+    if (given === correctSolution) {
         s.correct = (s.correct || 0) + 1;
+        infoEl.innerText = "Richtig! ✅";
     } else {
-        alert(`Falsch. Richtig wäre: ${entry.es}`);
         s.wrong = (s.wrong || 0) + 1;
+        infoEl.innerText = `Falsch. Richtig wäre: ${currentEntry.es}`;
     }
 
     saveVocab();
+    refreshStats();
+}
+
+// Weiß ich nicht → falsch werten, Lösung anzeigen
+function dontKnow() {
+    if (!currentEntry) {
+        alert("Kein aktuelles Wort – starte zuerst einen Lernstapel.");
+        return;
+    }
+
+    const infoEl = document.getElementById("learnInfo");
+    if (!infoEl) return;
+
+    const s = currentEntry.stats;
+    s.wrong = (s.wrong || 0) + 1;
+
+    infoEl.innerText = `Okay, du wusstest es nicht. Richtig wäre: ${currentEntry.es}`;
+    saveVocab();
+    refreshStats();
+}
+
+// Überspringen → nichts werten, nur zur nächsten Karte
+function skipCard() {
+    if (!learnStack || learnStack.length === 0) {
+        alert("Kein Lernstapel aktiv.");
+        return;
+    }
+    learnStackPos++;
+    showCurrentCard();
 }
 
 // ---------------------
@@ -258,13 +408,14 @@ async function fetchAiVocab() {
 
     statusEl.innerText = "KI wird abgefragt...";
 
-    // Set mit allen bereits vorhandenen deutschen Wörtern
     const existing = new Set(
-        vocabList.map(entry => entry.de.toLowerCase().trim())
+        (vocabList || [])
+            .filter(entry => entry && typeof entry.de === "string")
+            .map(entry => entry.de.toLowerCase().trim())
     );
 
     let totalNew = 0;
-    const maxRounds = 3; // maximal 3 KI-Runden pro Klick
+    const maxRounds = 3;
 
     try {
         for (let round = 0; round < maxRounds && totalNew < requested; round++) {
@@ -287,7 +438,7 @@ async function fetchAiVocab() {
 
             if (!Array.isArray(data) || data.length === 0) {
                 console.warn("Backend hat kein Array zurückgegeben:", data);
-                break; // nichts mehr zu holen
+                break;
             }
 
             for (const entry of data) {
@@ -295,7 +446,6 @@ async function fetchAiVocab() {
 
                 const key = String(entry.de).toLowerCase().trim();
                 if (existing.has(key)) {
-                    // schon vorhanden
                     continue;
                 }
 
@@ -333,10 +483,18 @@ window.addEventListener("DOMContentLoaded", () => {
     refreshStats();
 
     const btnAdd = document.getElementById("btnAdd");
-    const btnLearn = document.getElementById("btnLearn");
+    const btnStartStack = document.getElementById("btnStartStack");
+    const btnCheck = document.getElementById("btnCheck");
+    const btnDontKnow = document.getElementById("btnDontKnow");
+    const btnSkip = document.getElementById("btnSkip");
     const btnAi = document.getElementById("btnAi");
 
     if (btnAdd) btnAdd.addEventListener("click", addWord);
-    if (btnLearn) btnLearn.addEventListener("click", learn);
+    if (btnStartStack) btnStartStack.addEventListener("click", startLearnStack);
+    if (btnCheck) btnCheck.addEventListener("click", checkAnswer);
+    if (btnDontKnow) btnDontKnow.addEventListener("click", dontKnow);
+    if (btnSkip) btnSkip.addEventListener("click", skipCard);
     if (btnAi) btnAi.addEventListener("click", fetchAiVocab);
+
+    updateLearnButtonsState(false);
 });
