@@ -26,8 +26,9 @@
             font-weight: bold;
         }
 
-        input {
-            width: 200px;
+        input[type="text"],
+        input[type="number"] {
+            width: 220px;
             padding: 6px;
             margin-right: 10px;
             margin-top: 5px;
@@ -36,6 +37,7 @@
         button {
             padding: 8px 12px;
             margin-top: 10px;
+            margin-right: 6px;
             background: #0078ff;
             border: none;
             color: white;
@@ -44,7 +46,12 @@
             font-size: 14px;
         }
 
-        button:hover {
+        button:disabled {
+            opacity: 0.5;
+            cursor: default;
+        }
+
+        button:hover:not(:disabled) {
             background: #005fcc;
         }
 
@@ -57,6 +64,33 @@
         #stats {
             font-weight: bold;
             margin-top: 10px;
+        }
+
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+            font-size: 14px;
+        }
+
+        th, td {
+            border: 1px solid #ddd;
+            padding: 6px 8px;
+            text-align: left;
+        }
+
+        th {
+            background-color: #eee;
+        }
+
+        #learnQuestion {
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+
+        #learnInfo {
+            margin-top: 8px;
+            font-style: italic;
         }
     </style>
 </head>
@@ -78,8 +112,19 @@
 
     <!-- Lernen -->
     <div class="card">
-        <h2>Lernen</h2>
-        <button id="btnLearn">Zufällige Vokabel üben</button>
+        <h2>Lernen (Stapel von 10 Karten)</h2>
+
+        <div id="learnQuestion">Noch kein Lernstapel gestartet.</div>
+        <input id="learnInput" type="text" placeholder="Antwort auf Spanisch" />
+
+        <div>
+            <button id="btnStartStack">Stapel (10 Karten) starten</button>
+            <button id="btnCheck" disabled>Antwort prüfen</button>
+            <button id="btnDontKnow" disabled>Weiß ich nicht</button>
+            <button id="btnSkip" disabled>Überspringen</button>
+        </div>
+
+        <div id="learnInfo"></div>
     </div>
 
     <!-- KI-Vokabelvorschläge -->
@@ -101,6 +146,26 @@
     <div class="card">
         <h2>Statistik</h2>
         <div id="stats">Gesamt: 0</div>
+    </div>
+
+    <!-- Vokabel-Liste -->
+    <div class="card">
+        <h2>Alle Vokabeln (alphabetisch nach Spanisch)</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>#</th>
+                    <th>Spanisch</th>
+                    <th>Deutsch</th>
+                    <th>Gezeigt</th>
+                    <th>Richtig</th>
+                    <th>Falsch</th>
+                </tr>
+            </thead>
+            <tbody id="vocabTableBody">
+                <!-- wird per JavaScript gefüllt -->
+            </tbody>
+        </table>
     </div>
 
     <!-- App-Script -->
