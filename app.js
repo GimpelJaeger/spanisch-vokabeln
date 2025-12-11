@@ -3,6 +3,13 @@ console.log("app.js wurde geladen!");
 // Backend-URL (läuft im selben Server, bei Render auch)
 const AI_BACKEND_URL = "/ai-vocab";
 
+// Supabase-Konfiguration (4. Cloud-Sync)
+// HIER DEINE WERTE EINTRAGEN, sonst macht Sync nur eine Fehlermeldung:
+const SUPABASE_URL = "https://DEINE_SUPABASE_URL.supabase.co";
+const SUPABASE_ANON_KEY = "DEIN_SUPABASE_ANON_KEY";
+const SUPABASE_TABLE = "vocab";
+const SUPABASE_PROFILE_ID = "standard-profil"; // gleicher Wert auf PC & Handy = gleicher Wortschatz
+
 // ---------------------
 // Globale Variablen
 // ---------------------
@@ -15,6 +22,7 @@ let learnStackPos = -1;    // Position im Stapel
 let currentEntry = null;   // aktuell abgefragte Vokabel
 let currentResult = null;  // true = richtig, false = falsch, null = nicht bewertet
 let cardPhase = "front";   // "front" | "back"
+let learnDirection = "DE_ES"; // "DE_ES" | "ES_DE"
 
 let stackResults = [];     // Ergebnisliste für Zusammenfassung
 
@@ -45,7 +53,7 @@ function initStatsForEntry(entry) {
     s.timesShown = s.timesShown || 0;
     if (!Array.isArray(s.sessions)) s.sessions = [];
     s.lastSession = s.lastSession || null;
-    if (!Array.isArray(s.history)) s.history = []; // Verlauf der letzten Antworten
+    if (!Array.isArray(s.history)) s.history = []; // Verlauf der letzten Antworten (true/false)
     return entry;
 }
 
@@ -70,6 +78,55 @@ function saveVocab() {
     } catch (e) {
         console.error("Fehler beim Speichern der Vokabeln:", e);
     }
+}
+
+// ---------------------
+// Schwierigkeit berechnen
+// ---------------------
+function computeDifficultyScore(entry) {
+    const s = entry.stats || {};
+    const shown = s.timesShown || 0;
+    const correct = s.correct || 0;
+    const wrong = s.wrong || 0;
+    const history = Array.isArray(s.history) ? s.history : [];
+    const recent = history.slice(-5);
+    const recentWrong = recent.filter(v => v === false).length;
+    const recentTotal = recent.length;
+
+    // Basis: Fehler insgesamt – richtige Antworten drücken die Schwierigkeit
+    let score = wrong * 1.5 - correct * 0.4;
+
+    // Aktuelle Phase stärker gewichten
+    if (recentTotal > 0) {
+        const recentRate = recentWrong / recentTotal;
+        score += recentRate * 4; // starke Gewichtung auf die letzten Versuche
+    }
+
+    // Wörter mit sehr wenigen Wiederholungen bleiben trotzdem eher "mittel"
+    if (shown < 3) {
+        score += 0.5;
+    }
+
+    return score;
+}
+
+function getDifficultyLabel(entry) {
+    const s = entry.stats || {};
+    const shown = s.timesShown || 0;
+    if (shown < 3) return "neu";
+
+    const score = computeDifficultyScore(entry);
+    if (score >= 4) return "schwer";
+    if (score >= 1.5) return "mittel";
+    return "leicht";
+}
+
+function getDifficultyCssClass(entry) {
+    const label = getDifficultyLabel(entry);
+    if (label === "schwer") return "difficulty-hard";
+    if (label === "mittel") return "difficulty-medium";
+    if (label === "leicht") return "difficulty-easy";
+    return "";
 }
 
 // ---------------------
@@ -104,13 +161,33 @@ function renderVocabTable() {
         tdDe.textContent = entry.de || "";
 
         const s = entry.stats || {};
+        const shown = s.timesShown || 0;
+        const correct = s.correct || 0;
+        const wrong = s.wrong || 0;
+
         const tdShown = document.createElement("td");
         const tdCorrect = document.createElement("td");
         const tdWrong = document.createElement("td");
+        const tdRate = document.createElement("td");
+        const tdDiff = document.createElement("td");
 
-        tdShown.textContent = s.timesShown || 0;
-        tdCorrect.textContent = s.correct || 0;
-        tdWrong.textContent = s.wrong || 0;
+        tdShown.textContent = shown;
+        tdCorrect.textContent = correct;
+        tdWrong.textContent = wrong;
+
+        let rate = 0;
+        if (shown > 0) {
+            rate = Math.round((correct / shown) * 100);
+        }
+        tdRate.textContent = shown > 0 ? `${rate}%` : "-";
+
+        const diffLabel = getDifficultyLabel(entry);
+        tdDiff.textContent = diffLabel;
+
+        const diffClass = getDifficultyCssClass(entry);
+        if (diffClass) {
+            tr.classList.add(diffClass);
+        }
 
         tr.appendChild(tdIndex);
         tr.appendChild(tdEs);
@@ -118,6 +195,8 @@ function renderVocabTable() {
         tr.appendChild(tdShown);
         tr.appendChild(tdCorrect);
         tr.appendChild(tdWrong);
+        tr.appendChild(tdRate);
+        tr.appendChild(tdDiff);
 
         tbody.appendChild(tr);
     });
@@ -212,15 +291,11 @@ function chooseNextEntryIndex() {
         return null;
     }
 
+    // Gewichtung mit Schwierigkeit
     let totalWeight = 0;
     const weights = advancedPool.map(item => {
-        const s = item.entry.stats;
-        const wrong = s.wrong || 0;
-        const correct = s.correct || 0;
-
-        let weight = 1 + wrong * 2 - correct * 0.5;
-        if (weight < 0.2) weight = 0.2;
-
+        const score = computeDifficultyScore(item.entry);
+        let weight = 1 + Math.max(score, 0); // negative Scores nicht belohnen
         totalWeight += weight;
         return weight;
     });
@@ -236,7 +311,7 @@ function chooseNextEntryIndex() {
     return advancedPool[advancedPool.length - 1].index;
 }
 
-function buildLearnStack(size = 10) {
+function buildLearnStack(size = 10, onlyHard = false) {
     const used = new Set();
     const stack = [];
 
@@ -245,9 +320,20 @@ function buildLearnStack(size = 10) {
     const maxCards = Math.min(size, vocabList.length);
     let safety = 0;
 
-    while (stack.length < maxCards && safety < 200) {
-        const idx = chooseNextEntryIndex();
+    while (stack.length < maxCards && safety < 300) {
+        let idx = chooseNextEntryIndex();
         if (idx === null) break;
+
+        const entry = vocabList[idx];
+
+        if (onlyHard) {
+            const label = getDifficultyLabel(entry);
+            if (label !== "schwer") {
+                safety++;
+                continue;
+            }
+        }
+
         if (!used.has(idx)) {
             used.add(idx);
             stack.push(idx);
@@ -278,7 +364,6 @@ function closeOverlay() {
     if (!overlay) return;
     overlay.classList.add("hidden");
 
-    // Stapel zurücksetzen
     learnStack = [];
     learnStackPos = -1;
     currentEntry = null;
@@ -287,7 +372,6 @@ function closeOverlay() {
     stackResults = [];
 }
 
-// Punkte-Historie aktualisieren
 function updateHistoryDots(entry) {
     const dotsContainer = document.getElementById("cardHistoryDots");
     if (!dotsContainer) return;
@@ -336,6 +420,9 @@ function resetCardVisual() {
     currentResult = null;
 }
 
+let currentFrontTextValue = "";
+let currentBackTextValue = "";
+
 function showCurrentCard() {
     const learnCard = document.getElementById("learnCard");
     const frontText = document.getElementById("cardFrontText");
@@ -347,14 +434,12 @@ function showCurrentCard() {
 
     if (!learnCard || !frontText || !backText || !statusEl || !overlayTitle || !cardArea || !summaryContainer) return;
 
-    // Wenn Stapel durch ist → Zusammenfassung anzeigen
     if (!learnStack || learnStack.length === 0 || learnStackPos < 0 || learnStackPos >= learnStack.length) {
         cardArea.classList.add("hidden");
         summaryContainer.classList.remove("hidden");
         statusEl.innerText = "";
         overlayTitle.innerText = "Stapel beendet";
 
-        // Zusammenfassungstabelle bauen
         let html = "<h3>Zusammenfassung</h3>";
         html += "<table><thead><tr><th>#</th><th>Spanisch</th><th>Deutsch</th><th>Antwort</th></tr></thead><tbody>";
 
@@ -396,21 +481,31 @@ function showCurrentCard() {
     saveVocab();
     refreshStats();
 
-    frontText.innerText = currentEntry.de || "";
-    backText.innerText = currentEntry.es || "";
+    if (learnDirection === "DE_ES") {
+        currentFrontTextValue = currentEntry.de || "";
+        currentBackTextValue = currentEntry.es || "";
+    } else {
+        currentFrontTextValue = currentEntry.es || "";
+        currentBackTextValue = currentEntry.de || "";
+    }
+
+    frontText.innerText = currentFrontTextValue;
+    backText.innerText = currentBackTextValue;
     updateHistoryDots(currentEntry);
 }
 
-function startLearnStack() {
+function startLearnStack(onlyHard = false) {
     if (!vocabList || vocabList.length === 0) {
         alert("Keine Vokabeln vorhanden!");
         return;
     }
 
-    learnStack = buildLearnStack(10);
+    learnStack = buildLearnStack(10, onlyHard);
 
     if (!learnStack || learnStack.length === 0) {
-        alert("Keine Vokabeln für den Lernstapel gefunden.");
+        alert(onlyHard
+            ? "Keine schwierigen Vokabeln gefunden. Übe erst ein wenig, dann wird dieser Modus sinnvoll."
+            : "Keine Vokabeln für den Lernstapel gefunden.");
         return;
     }
 
@@ -422,16 +517,14 @@ function startLearnStack() {
     showCurrentCard();
 }
 
-// Karte umdrehen (nur vorne → hinten)
 function flipCardToBack() {
     if (cardPhase !== "front" || !currentEntry) return;
 
     const learnCard = document.getElementById("learnCard");
-    const btnFlip = document.getElementById("btnFlipCard");
     const btnBackRow = document.getElementById("cardButtonsBack");
     const btnFrontRow = document.getElementById("cardButtonsFront");
 
-    if (!learnCard || !btnFlip || !btnBackRow || !btnFrontRow) return;
+    if (!learnCard || !btnBackRow || !btnFrontRow) return;
 
     learnCard.classList.add("show-back");
     btnFrontRow.classList.add("hidden");
@@ -439,11 +532,10 @@ function flipCardToBack() {
     cardPhase = "back";
 }
 
-// Ergebnis (richtig/falsch) setzen, aber Karte nicht wechseln
 function applyResult(isCorrect) {
     if (!currentEntry) return;
-    if (cardPhase !== "back") return;      // erst nach Umdrehen
-    if (currentResult !== null) return;    // schon bewertet
+    if (cardPhase !== "back") return;
+    if (currentResult !== null) return;
 
     const learnCard = document.getElementById("learnCard");
     const statusEl = document.getElementById("cardStatus");
@@ -464,7 +556,7 @@ function applyResult(isCorrect) {
     } else {
         s.wrong = (s.wrong || 0) + 1;
         s.history.push(false);
-        statusEl.innerText = `Falsch. Richtig wäre: ${currentEntry.es}`;
+        statusEl.innerText = `Falsch. Richtig wäre: ${currentBackTextValue}`;
         learnCard.classList.add("card-wrong");
     }
 
@@ -476,11 +568,9 @@ function applyResult(isCorrect) {
     refreshStats();
     updateHistoryDots(currentEntry);
 
-    // Weiter ist jetzt erlaubt
     btnNext.disabled = false;
 }
 
-// Nächste Karte nach Klick auf "Weiter"
 function nextCard() {
     if (!learnStack || learnStack.length === 0) {
         closeOverlay();
@@ -491,7 +581,7 @@ function nextCard() {
         stackResults.push({
             de: currentEntry.de,
             es: currentEntry.es,
-            result: currentResult // true, false oder null
+            result: currentResult
         });
     }
 
@@ -499,9 +589,7 @@ function nextCard() {
     showCurrentCard();
 }
 
-// ---------------------
-// Swipe-Event-Handler (nur auf Rückseite aktiv)
-// ---------------------
+// Swipe-Events – nur auf Rückseite aktiv
 function onCardTouchStart(e) {
     const touch = e.touches[0];
     touchStartX = touch.clientX;
@@ -514,13 +602,10 @@ function onCardTouchEnd(e) {
     touchStartX = null;
 
     if (Math.abs(dx) < SWIPE_THRESHOLD) {
-        return; // zu kleine Bewegung
-    }
-
-    if (cardPhase !== "back") {
-        // nur auf Rückseite bewerten
         return;
     }
+
+    if (cardPhase !== "back") return;
 
     if (dx > 0) {
         applyResult(true);
@@ -529,7 +614,6 @@ function onCardTouchEnd(e) {
     }
 }
 
-// Maus-Unterstützung (optional, für PC)
 let mouseDownX = null;
 function onCardMouseDown(e) {
     mouseDownX = e.clientX;
@@ -544,9 +628,7 @@ function onCardMouseUp(e) {
         return;
     }
 
-    if (cardPhase !== "back") {
-        return;
-    }
+    if (cardPhase !== "back") return;
 
     if (dx > 0) {
         applyResult(true);
@@ -642,6 +724,116 @@ async function fetchAiVocab() {
 }
 
 // ---------------------
+// Cloud-Sync mit Supabase
+// ---------------------
+function hasSupabaseConfig() {
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return false;
+    if (SUPABASE_URL.includes("DEINE_SUPABASE")) return false;
+    if (SUPABASE_ANON_KEY.includes("DEIN_SUPABASE")) return false;
+    return true;
+}
+
+async function syncWithCloud() {
+    const statusEl = document.getElementById("cloudStatus");
+    if (!statusEl) return;
+
+    if (!hasSupabaseConfig()) {
+        statusEl.innerText = "Supabase ist noch nicht konfiguriert. Trage SUPABASE_URL und SUPABASE_ANON_KEY in app.js ein.";
+        return;
+    }
+
+    try {
+        statusEl.innerText = "Lade Daten aus der Cloud ...";
+
+        const url = `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?select=*&profile_id=eq.${encodeURIComponent(SUPABASE_PROFILE_ID)}`;
+        const res = await fetch(url, {
+            headers: {
+                apikey: SUPABASE_ANON_KEY,
+                Authorization: `Bearer ${SUPABASE_ANON_KEY}`
+            }
+        });
+
+        if (!res.ok) {
+            throw new Error(`Fehler beim Laden: ${res.status} ${res.statusText}`);
+        }
+
+        const remoteRows = await res.json();
+
+        const remoteList = remoteRows.map(row =>
+            initStatsForEntry({
+                de: row.de,
+                es: row.es,
+                stats: row.stats || {}
+            })
+        );
+
+        // Merge: nach deutschem Wort (lowercase)
+        const mergedMap = new Map();
+
+        function mergeEntry(entry) {
+            const key = entry.de.toLowerCase();
+            if (!mergedMap.has(key)) {
+                mergedMap.set(key, initStatsForEntry(entry));
+            } else {
+                const existing = mergedMap.get(key);
+                const s1 = existing.stats || {};
+                const s2 = entry.stats || {};
+                existing.stats = {
+                    correct: (s1.correct || 0) + (s2.correct || 0),
+                    wrong: (s1.wrong || 0) + (s2.wrong || 0),
+                    timesShown: (s1.timesShown || 0) + (s2.timesShown || 0),
+                    sessions: Array.from(new Set([...(s1.sessions || []), ...(s2.sessions || [])])),
+                    lastSession: existing.lastSession || entry.lastSession || null,
+                    history: [...(s1.history || []), ...(s2.history || [])].slice(-50)
+                };
+                mergedMap.set(key, existing);
+            }
+        }
+
+        vocabList.forEach(mergeEntry);
+        remoteList.forEach(mergeEntry);
+
+        vocabList = Array.from(mergedMap.values());
+        saveVocab();
+        refreshStats();
+
+        statusEl.innerText = "Synchronisiere Daten in die Cloud ...";
+
+        const upsertUrl = `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}`;
+        const payload = vocabList.map(entry => ({
+            profile_id: SUPABASE_PROFILE_ID,
+            de: entry.de,
+            es: entry.es,
+            stats: entry.stats || {}
+        }));
+
+        const upRes = await fetch(upsertUrl, {
+            method: "POST",
+            headers: {
+                apikey: SUPABASE_ANON_KEY,
+                Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+                "Content-Type": "application/json",
+                Prefer: "resolution=merge-duplicates"
+            },
+            body: JSON.stringify(payload)
+        });
+
+        if (!upRes.ok) {
+            throw new Error(`Fehler beim Hochladen: ${upRes.status} ${upRes.statusText}`);
+        }
+
+        statusEl.innerText = "Cloud-Sync abgeschlossen ✅ (PC & Handy sind jetzt auf demselben Stand).";
+
+    } catch (err) {
+        console.error(err);
+        const statusEl = document.getElementById("cloudStatus");
+        if (statusEl) {
+            statusEl.innerText = "Cloud-Sync fehlgeschlagen: " + err.message;
+        }
+    }
+}
+
+// ---------------------
 // Initialisierung
 // ---------------------
 window.addEventListener("DOMContentLoaded", () => {
@@ -651,6 +843,7 @@ window.addEventListener("DOMContentLoaded", () => {
 
     const btnAdd = document.getElementById("btnAdd");
     const btnStartStack = document.getElementById("btnStartStack");
+    const btnStartHardStack = document.getElementById("btnStartHardStack");
     const btnNextCard = document.getElementById("btnNextCard");
     const btnCloseOverlay = document.getElementById("btnCloseOverlay");
     const learnCard = document.getElementById("learnCard");
@@ -658,21 +851,31 @@ window.addEventListener("DOMContentLoaded", () => {
     const btnFlipCard = document.getElementById("btnFlipCard");
     const btnMarkWrong = document.getElementById("btnMarkWrong");
     const btnMarkCorrect = document.getElementById("btnMarkCorrect");
+    const btnCloudSync = document.getElementById("btnCloudSync");
 
     if (btnAdd) btnAdd.addEventListener("click", addWord);
-    if (btnStartStack) btnStartStack.addEventListener("click", startLearnStack);
+    if (btnStartStack) btnStartStack.addEventListener("click", () => startLearnStack(false));
+    if (btnStartHardStack) btnStartHardStack.addEventListener("click", () => startLearnStack(true));
     if (btnNextCard) btnNextCard.addEventListener("click", nextCard);
     if (btnCloseOverlay) btnCloseOverlay.addEventListener("click", closeOverlay);
     if (btnAi) btnAi.addEventListener("click", fetchAiVocab);
     if (btnFlipCard) btnFlipCard.addEventListener("click", flipCardToBack);
     if (btnMarkWrong) btnMarkWrong.addEventListener("click", () => applyResult(false));
     if (btnMarkCorrect) btnMarkCorrect.addEventListener("click", () => applyResult(true));
+    if (btnCloudSync) btnCloudSync.addEventListener("click", syncWithCloud);
 
-    // Swipe-Events
     if (learnCard) {
         learnCard.addEventListener("touchstart", onCardTouchStart, { passive: true });
         learnCard.addEventListener("touchend", onCardTouchEnd, { passive: true });
         learnCard.addEventListener("mousedown", onCardMouseDown);
         learnCard.addEventListener("mouseup", onCardMouseUp);
     }
+
+    // Richtung-Umschalter
+    const dirRadios = document.querySelectorAll("input[name='learnDirection']");
+    dirRadios.forEach(radio => {
+        radio.addEventListener("change", () => {
+            learnDirection = radio.value;
+        });
+    });
 });
