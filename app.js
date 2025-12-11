@@ -260,10 +260,37 @@ function shuffle(arr) {
 }
 
 function buildNormalStack(size = 10) {
-    const indices = vocabList.map((_, i) => i);
-    shuffle(indices);
-    const n = Math.min(size, indices.length);
-    return indices.slice(0, n);
+    const unseen = [];
+    const seen = [];
+
+    vocabList.forEach((entry, index) => {
+        const s = entry.stats || {};
+        const shown = s.timesShown || 0;
+
+        if (shown === 0) {
+            unseen.push(index);   // noch nie dran gewesen → weiße Wörter
+        } else {
+            seen.push(index);     // schon mindestens einmal gezeigt
+        }
+    });
+
+    // zufällig mischen (shuffle ist bei dir schon definiert)
+    shuffle(unseen);
+    shuffle(seen);
+
+    const result = [];
+
+    // zuerst alle "weißen" Wörter nehmen
+    for (let i = 0; i < unseen.length && result.length < size; i++) {
+        result.push(unseen[i]);
+    }
+
+    // wenn noch Platz im Stapel ist, mit schon geübten auffüllen
+    for (let i = 0; i < seen.length && result.length < size; i++) {
+        result.push(seen[i]);
+    }
+
+    return result;
 }
 
 function buildHardStack(size = 10) {
