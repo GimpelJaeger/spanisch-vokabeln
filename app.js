@@ -3,12 +3,12 @@ console.log("app.js wurde geladen!");
 // Backend-URL (läuft im selben Server, bei Render auch)
 const AI_BACKEND_URL = "/ai-vocab";
 
-// Supabase-Konfiguration (4. Cloud-Sync)
-// HIER DEINE WERTE EINTRAGEN, sonst macht Sync nur eine Fehlermeldung:
+// Supabase-Konfiguration (optional für Cloud-Sync)
+// Wenn du das nicht nutzt: einfach so lassen, dann zeigt der Button nur eine Info.
 const SUPABASE_URL = "https://DEINE_SUPABASE_URL.supabase.co";
 const SUPABASE_ANON_KEY = "DEIN_SUPABASE_ANON_KEY";
 const SUPABASE_TABLE = "vocab";
-const SUPABASE_PROFILE_ID = "standard-profil"; // gleicher Wert auf PC & Handy = gleicher Wortschatz
+const SUPABASE_PROFILE_ID = "standard-profil";
 
 // ---------------------
 // Globale Variablen
@@ -17,17 +17,18 @@ let vocabList = [];
 let currentSessionId = 0;
 
 // Lernstapel
-let learnStack = [];       // Array von Indizes in vocabList
-let learnStackPos = -1;    // Position im Stapel
-let currentEntry = null;   // aktuell abgefragte Vokabel
-let currentResult = null;  // true = richtig, false = falsch, null = nicht bewertet
-let cardPhase = "front";   // "front" | "back"
-let learnDirection = "DE_ES"; // "DE_ES" | "ES_DE"
+let learnStack = [];
+let learnStackPos = -1;
+let currentEntry = null;
+let currentResult = null;      // true = richtig, false = falsch, null = keine Bewertung
+let cardPhase = "front";       // "front" | "back"
+let learnDirection = "DE_ES";  // "DE_ES" | "ES_DE"
 
-let stackResults = [];     // Ergebnisliste für Zusammenfassung
+let stackResults = [];         // Zusammenfassung
 
 // Swipe
 let touchStartX = null;
+let mouseDownX = null;
 const SWIPE_THRESHOLD = 50;
 
 // ---------------------
@@ -53,7 +54,7 @@ function initStatsForEntry(entry) {
     s.timesShown = s.timesShown || 0;
     if (!Array.isArray(s.sessions)) s.sessions = [];
     s.lastSession = s.lastSession || null;
-    if (!Array.isArray(s.history)) s.history = []; // Verlauf der letzten Antworten (true/false)
+    if (!Array.isArray(s.history)) s.history = [];
     return entry;
 }
 
@@ -64,7 +65,7 @@ function loadVocab() {
     try {
         const raw = JSON.parse(localStorage.getItem("vocabList") || "[]");
         vocabList = raw
-            .filter(entry => entry && typeof entry.de === "string" && typeof entry.es === "string")
+            .filter(e => e && typeof e.de === "string" && typeof e.es === "string")
             .map(initStatsForEntry);
     } catch (e) {
         console.error("Fehler beim Laden der Vokabeln:", e);
@@ -81,52 +82,22 @@ function saveVocab() {
 }
 
 // ---------------------
-// Schwierigkeit berechnen
+// Trefferquote & Farben
 // ---------------------
-function computeDifficultyScore(entry) {
+function getRate(entry) {
     const s = entry.stats || {};
     const shown = s.timesShown || 0;
     const correct = s.correct || 0;
-    const wrong = s.wrong || 0;
-    const history = Array.isArray(s.history) ? s.history : [];
-    const recent = history.slice(-5);
-    const recentWrong = recent.filter(v => v === false).length;
-    const recentTotal = recent.length;
-
-    // Basis: Fehler insgesamt – richtige Antworten drücken die Schwierigkeit
-    let score = wrong * 1.5 - correct * 0.4;
-
-    // Aktuelle Phase stärker gewichten
-    if (recentTotal > 0) {
-        const recentRate = recentWrong / recentTotal;
-        score += recentRate * 4; // starke Gewichtung auf die letzten Versuche
-    }
-
-    // Wörter mit sehr wenigen Wiederholungen bleiben trotzdem eher "mittel"
-    if (shown < 3) {
-        score += 0.5;
-    }
-
-    return score;
+    if (!shown) return null;
+    return Math.round((correct / shown) * 100);
 }
 
-function getDifficultyLabel(entry) {
-    const s = entry.stats || {};
-    const shown = s.timesShown || 0;
-    if (shown < 3) return "neu";
-
-    const score = computeDifficultyScore(entry);
-    if (score >= 4) return "schwer";
-    if (score >= 1.5) return "mittel";
-    return "leicht";
-}
-
-function getDifficultyCssClass(entry) {
-    const label = getDifficultyLabel(entry);
-    if (label === "schwer") return "difficulty-hard";
-    if (label === "mittel") return "difficulty-medium";
-    if (label === "leicht") return "difficulty-easy";
-    return "";
+function getRowClassForRate(rate) {
+    if (rate === null) return "";
+    if (rate < 40) return "difficulty-very-bad";
+    if (rate < 70) return "difficulty-bad";
+    if (rate < 90) return "difficulty-good";
+    return "difficulty-very-good";
 }
 
 // ---------------------
@@ -138,15 +109,11 @@ function renderVocabTable() {
 
     tbody.innerHTML = "";
 
-    if (!vocabList || vocabList.length === 0) {
-        return;
-    }
+    if (!vocabList || vocabList.length === 0) return;
 
-    const sorted = [...vocabList].sort((a, b) => {
-        const esA = (a.es || "").toLowerCase();
-        const esB = (b.es || "").toLowerCase();
-        return esA.localeCompare(esB, "es");
-    });
+    const sorted = [...vocabList].sort((a, b) =>
+        (a.es || "").toLowerCase().localeCompare((b.es || "").toLowerCase(), "es")
+    );
 
     sorted.forEach((entry, idx) => {
         const tr = document.createElement("tr");
@@ -169,25 +136,40 @@ function renderVocabTable() {
         const tdCorrect = document.createElement("td");
         const tdWrong = document.createElement("td");
         const tdRate = document.createElement("td");
-        const tdDiff = document.createElement("td");
+        const tdHistory = document.createElement("td");
 
         tdShown.textContent = shown;
         tdCorrect.textContent = correct;
         tdWrong.textContent = wrong;
 
-        let rate = 0;
-        if (shown > 0) {
-            rate = Math.round((correct / shown) * 100);
-        }
-        tdRate.textContent = shown > 0 ? `${rate}%` : "-";
+        const rate = getRate(entry);
+        tdRate.textContent = rate === null ? "-" : `${rate}%`;
 
-        const diffLabel = getDifficultyLabel(entry);
-        tdDiff.textContent = diffLabel;
+        // Letzte Abfragen (5 Punkte)
+        const container = document.createElement("div");
+        container.className = "history-dots-table";
 
-        const diffClass = getDifficultyCssClass(entry);
-        if (diffClass) {
-            tr.classList.add(diffClass);
+        const history = Array.isArray(s.history) ? s.history : [];
+        const last5 = history.slice(-5);
+        const totalDots = 5;
+        const padding = totalDots - last5.length;
+
+        // graue "leere" Punkte
+        for (let i = 0; i < padding; i++) {
+            const dot = document.createElement("span");
+            dot.className = "dot large";
+            container.appendChild(dot);
         }
+        // tatsächliche letzten Ergebnisse
+        last5.forEach(val => {
+            const dot = document.createElement("span");
+            dot.className = "dot large";
+            if (val === true) dot.classList.add("correct");
+            if (val === false) dot.classList.add("wrong");
+            container.appendChild(dot);
+        });
+
+        tdHistory.appendChild(container);
 
         tr.appendChild(tdIndex);
         tr.appendChild(tdEs);
@@ -196,22 +178,27 @@ function renderVocabTable() {
         tr.appendChild(tdCorrect);
         tr.appendChild(tdWrong);
         tr.appendChild(tdRate);
-        tr.appendChild(tdDiff);
+        tr.appendChild(tdHistory);
+
+        // Farbe nach Rate
+        const cls = getRowClassForRate(rate);
+        if (cls) tr.classList.add(cls);
 
         tbody.appendChild(tr);
     });
 }
 
 function refreshStats() {
-    const total = vocabList.length;
     const statsEl = document.getElementById("stats");
     if (statsEl) {
-        statsEl.innerText = `Gesamt: ${total}`;
+        statsEl.innerText = `Gesamt: ${vocabList.length}`;
     }
     renderVocabTable();
 }
 
-// neue Vokabel mit Stats
+// ---------------------
+// Vokabel hinzufügen
+// ---------------------
 function createEntry(de, es) {
     return {
         de,
@@ -227,13 +214,9 @@ function createEntry(de, es) {
     };
 }
 
-// ---------------------
-// Manuell Vokabel hinzufügen
-// ---------------------
 function addWord() {
     const deInput = document.getElementById("inputDe");
     const esInput = document.getElementById("inputEs");
-
     if (!deInput || !esInput) return;
 
     const de = deInput.value.trim();
@@ -245,7 +228,7 @@ function addWord() {
     }
 
     const key = de.toLowerCase();
-    const exists = vocabList.some(entry => entry.de.toLowerCase() === key);
+    const exists = vocabList.some(e => e.de.toLowerCase() === key);
     if (exists) {
         alert(`„${de}“ ist bereits in deiner Liste.`);
         return;
@@ -260,88 +243,41 @@ function addWord() {
 }
 
 // ---------------------
-// Lernmodus – adaptiver Stapel
+// Lernmodus – Stapel
 // ---------------------
-function chooseNextEntryIndex() {
-    if (!vocabList || vocabList.length === 0) return null;
-
-    const initialPool = [];
-    const advancedPool = [];
-
-    vocabList.forEach((entry, index) => {
-        const s = entry.stats || {};
-        const sessions = Array.isArray(s.sessions) ? s.sessions : [];
-        const uniqueSessions = sessions.length;
-
-        if (uniqueSessions < 3) {
-            initialPool.push({ entry, index, uniqueSessions });
-        } else {
-            advancedPool.push({ entry, index });
-        }
-    });
-
-    if (initialPool.length > 0) {
-        const minSessions = Math.min(...initialPool.map(i => i.uniqueSessions));
-        const candidates = initialPool.filter(i => i.uniqueSessions === minSessions);
-        const pick = candidates[Math.floor(Math.random() * candidates.length)];
-        return pick.index;
+function updateLearnDirectionFromUI() {
+    const checked = document.querySelector("input[name='learnDirection']:checked");
+    if (checked) {
+        learnDirection = checked.value;
     }
-
-    if (advancedPool.length === 0) {
-        return null;
-    }
-
-    // Gewichtung mit Schwierigkeit
-    let totalWeight = 0;
-    const weights = advancedPool.map(item => {
-        const score = computeDifficultyScore(item.entry);
-        let weight = 1 + Math.max(score, 0); // negative Scores nicht belohnen
-        totalWeight += weight;
-        return weight;
-    });
-
-    let r = Math.random() * totalWeight;
-    for (let i = 0; i < advancedPool.length; i++) {
-        r -= weights[i];
-        if (r <= 0) {
-            return advancedPool[i].index;
-        }
-    }
-
-    return advancedPool[advancedPool.length - 1].index;
 }
 
-function buildLearnStack(size = 10, onlyHard = false) {
-    const used = new Set();
-    const stack = [];
-
-    if (!vocabList || vocabList.length === 0) return [];
-
-    const maxCards = Math.min(size, vocabList.length);
-    let safety = 0;
-
-    while (stack.length < maxCards && safety < 300) {
-        let idx = chooseNextEntryIndex();
-        if (idx === null) break;
-
-        const entry = vocabList[idx];
-
-        if (onlyHard) {
-            const label = getDifficultyLabel(entry);
-            if (label !== "schwer") {
-                safety++;
-                continue;
-            }
-        }
-
-        if (!used.has(idx)) {
-            used.add(idx);
-            stack.push(idx);
-        }
-        safety++;
+function shuffle(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
     }
+}
 
-    return stack;
+function buildNormalStack(size = 10) {
+    const indices = vocabList.map((_, i) => i);
+    shuffle(indices);
+    const n = Math.min(size, indices.length);
+    return indices.slice(0, n);
+}
+
+function buildHardStack(size = 10) {
+    const hard = [];
+    vocabList.forEach((entry, index) => {
+        const rate = getRate(entry);
+        if (rate !== null && rate < 70) {
+            hard.push(index);
+        }
+    });
+
+    shuffle(hard);
+    const n = Math.min(size, hard.length);
+    return hard.slice(0, n);
 }
 
 function openOverlay() {
@@ -382,34 +318,31 @@ function updateHistoryDots(entry) {
 
     const last5 = history.slice(-5);
     const totalDots = 5;
-    const startIndex = Math.max(0, last5.length - totalDots);
-    const display = last5.slice(startIndex);
+    const padding = totalDots - last5.length;
 
-    const padding = totalDots - display.length;
     for (let i = 0; i < padding; i++) {
-        const span = document.createElement("span");
-        span.className = "dot";
-        dotsContainer.appendChild(span);
+        const dot = document.createElement("span");
+        dot.className = "dot";
+        dotsContainer.appendChild(dot);
     }
 
-    display.forEach(result => {
-        const span = document.createElement("span");
-        span.className = "dot";
-        if (result === true) span.classList.add("correct");
-        if (result === false) span.classList.add("wrong");
-        dotsContainer.appendChild(span);
+    last5.forEach(val => {
+        const dot = document.createElement("span");
+        dot.className = "dot";
+        if (val === true) dot.classList.add("correct");
+        if (val === false) dot.classList.add("wrong");
+        dotsContainer.appendChild(dot);
     });
 }
 
 function resetCardVisual() {
     const learnCard = document.getElementById("learnCard");
     const statusEl = document.getElementById("cardStatus");
-    const btnFlip = document.getElementById("btnFlipCard");
     const btnBackRow = document.getElementById("cardButtonsBack");
     const btnFrontRow = document.getElementById("cardButtonsFront");
     const btnNext = document.getElementById("btnNextCard");
 
-    if (!learnCard || !statusEl || !btnFlip || !btnBackRow || !btnFrontRow || !btnNext) return;
+    if (!learnCard || !statusEl || !btnBackRow || !btnFrontRow || !btnNext) return;
 
     learnCard.classList.remove("card-correct", "card-wrong", "show-back");
     statusEl.innerText = "";
@@ -434,6 +367,7 @@ function showCurrentCard() {
 
     if (!learnCard || !frontText || !backText || !statusEl || !overlayTitle || !cardArea || !summaryContainer) return;
 
+    // Stapel fertig → Zusammenfassung
     if (!learnStack || learnStack.length === 0 || learnStackPos < 0 || learnStackPos >= learnStack.length) {
         cardArea.classList.add("hidden");
         summaryContainer.classList.remove("hidden");
@@ -448,13 +382,9 @@ function showCurrentCard() {
             html += `<td>${index + 1}</td>`;
             html += `<td>${res.es || ""}</td>`;
             html += `<td>${res.de || ""}</td>`;
-            if (res.result === true) {
-                html += `<td>Richtig</td>`;
-            } else if (res.result === false) {
-                html += `<td>Falsch</td>`;
-            } else {
-                html += `<td>Keine Bewertung</td>`;
-            }
+            if (res.result === true) html += "<td>Richtig</td>";
+            else if (res.result === false) html += "<td>Falsch</td>";
+            else html += "<td>Keine Bewertung</td>";
             html += "</tr>";
         });
 
@@ -473,9 +403,7 @@ function showCurrentCard() {
     const s = currentEntry.stats;
     s.timesShown = (s.timesShown || 0) + 1;
     if (!Array.isArray(s.sessions)) s.sessions = [];
-    if (!s.sessions.includes(currentSessionId)) {
-        s.sessions.push(currentSessionId);
-    }
+    if (!s.sessions.includes(currentSessionId)) s.sessions.push(currentSessionId);
     s.lastSession = currentSessionId;
 
     saveVocab();
@@ -500,11 +428,13 @@ function startLearnStack(onlyHard = false) {
         return;
     }
 
-    learnStack = buildLearnStack(10, onlyHard);
+    updateLearnDirectionFromUI();
+
+    learnStack = onlyHard ? buildHardStack(10) : buildNormalStack(10);
 
     if (!learnStack || learnStack.length === 0) {
         alert(onlyHard
-            ? "Keine schwierigen Vokabeln gefunden. Übe erst ein wenig, dann wird dieser Modus sinnvoll."
+            ? "Keine schwierigen Vokabeln gefunden (weniger als 70% richtig)."
             : "Keine Vokabeln für den Lernstapel gefunden.");
         return;
     }
@@ -519,11 +449,9 @@ function startLearnStack(onlyHard = false) {
 
 function flipCardToBack() {
     if (cardPhase !== "front" || !currentEntry) return;
-
     const learnCard = document.getElementById("learnCard");
     const btnBackRow = document.getElementById("cardButtonsBack");
     const btnFrontRow = document.getElementById("cardButtonsFront");
-
     if (!learnCard || !btnBackRow || !btnFrontRow) return;
 
     learnCard.classList.add("show-back");
@@ -540,7 +468,6 @@ function applyResult(isCorrect) {
     const learnCard = document.getElementById("learnCard");
     const statusEl = document.getElementById("cardStatus");
     const btnNext = document.getElementById("btnNextCard");
-
     if (!learnCard || !statusEl || !btnNext) return;
 
     currentResult = isCorrect;
@@ -589,7 +516,9 @@ function nextCard() {
     showCurrentCard();
 }
 
-// Swipe-Events – nur auf Rückseite aktiv
+// ---------------------
+// Swipe-Events
+// ---------------------
 function onCardTouchStart(e) {
     const touch = e.touches[0];
     touchStartX = touch.clientX;
@@ -601,20 +530,13 @@ function onCardTouchEnd(e) {
     const dx = touch.clientX - touchStartX;
     touchStartX = null;
 
-    if (Math.abs(dx) < SWIPE_THRESHOLD) {
-        return;
-    }
-
+    if (Math.abs(dx) < SWIPE_THRESHOLD) return;
     if (cardPhase !== "back") return;
 
-    if (dx > 0) {
-        applyResult(true);
-    } else {
-        applyResult(false);
-    }
+    if (dx > 0) applyResult(true);
+    else applyResult(false);
 }
 
-let mouseDownX = null;
 function onCardMouseDown(e) {
     mouseDownX = e.clientX;
 }
@@ -624,17 +546,11 @@ function onCardMouseUp(e) {
     const dx = e.clientX - mouseDownX;
     mouseDownX = null;
 
-    if (Math.abs(dx) < SWIPE_THRESHOLD) {
-        return;
-    }
-
+    if (Math.abs(dx) < SWIPE_THRESHOLD) return;
     if (cardPhase !== "back") return;
 
-    if (dx > 0) {
-        applyResult(true);
-    } else {
-        applyResult(false);
-    }
+    if (dx > 0) applyResult(true);
+    else applyResult(false);
 }
 
 // ---------------------
@@ -644,7 +560,6 @@ async function fetchAiVocab() {
     const topicInput = document.getElementById("aiTopic");
     const countInput = document.getElementById("aiCount");
     const statusEl = document.getElementById("aiStatus");
-
     if (!topicInput || !countInput || !statusEl) return;
 
     const topic = topicInput.value.trim();
@@ -659,8 +574,8 @@ async function fetchAiVocab() {
 
     const existing = new Set(
         (vocabList || [])
-            .filter(entry => entry && typeof entry.de === "string")
-            .map(entry => entry.de.toLowerCase().trim())
+            .filter(e => e && typeof e.de === "string")
+            .map(e => e.de.toLowerCase().trim())
     );
 
     let totalNew = 0;
@@ -669,7 +584,6 @@ async function fetchAiVocab() {
     try {
         for (let round = 0; round < maxRounds && totalNew < requested; round++) {
             const remaining = requested - totalNew;
-            console.log(`Runde ${round + 1}, benötige noch ${remaining} neue Wörter.`);
 
             const res = await fetch(AI_BACKEND_URL, {
                 method: "POST",
@@ -685,18 +599,13 @@ async function fetchAiVocab() {
                 return;
             }
 
-            if (!Array.isArray(data) || data.length === 0) {
-                console.warn("Backend hat kein Array zurückgegeben:", data);
-                break;
-            }
+            if (!Array.isArray(data) || data.length === 0) break;
 
             for (const entry of data) {
                 if (!entry || !entry.de || !entry.es) continue;
 
                 const key = String(entry.de).toLowerCase().trim();
-                if (existing.has(key)) {
-                    continue;
-                }
+                if (existing.has(key)) continue;
 
                 existing.add(key);
                 vocabList.push(createEntry(String(entry.de), String(entry.es)));
@@ -716,7 +625,6 @@ async function fetchAiVocab() {
         } else {
             statusEl.innerText = `${totalNew} neue KI-Vokabeln für „${topic}“ hinzugefügt.`;
         }
-
     } catch (err) {
         console.error("Fehler beim Fetch:", err);
         statusEl.innerText = "Fehler bei der Kommunikation mit dem Backend.";
@@ -724,7 +632,7 @@ async function fetchAiVocab() {
 }
 
 // ---------------------
-// Cloud-Sync mit Supabase
+// Cloud-Sync (optional, Supabase)
 // ---------------------
 function hasSupabaseConfig() {
     if (!SUPABASE_URL || !SUPABASE_ANON_KEY) return false;
@@ -753,12 +661,9 @@ async function syncWithCloud() {
             }
         });
 
-        if (!res.ok) {
-            throw new Error(`Fehler beim Laden: ${res.status} ${res.statusText}`);
-        }
+        if (!res.ok) throw new Error(`Fehler beim Laden: ${res.status} ${res.statusText}`);
 
         const remoteRows = await res.json();
-
         const remoteList = remoteRows.map(row =>
             initStatsForEntry({
                 de: row.de,
@@ -767,7 +672,6 @@ async function syncWithCloud() {
             })
         );
 
-        // Merge: nach deutschem Wort (lowercase)
         const mergedMap = new Map();
 
         function mergeEntry(entry) {
@@ -818,18 +722,12 @@ async function syncWithCloud() {
             body: JSON.stringify(payload)
         });
 
-        if (!upRes.ok) {
-            throw new Error(`Fehler beim Hochladen: ${upRes.status} ${upRes.statusText}`);
-        }
+        if (!upRes.ok) throw new Error(`Fehler beim Hochladen: ${upRes.status} ${upRes.statusText}`);
 
         statusEl.innerText = "Cloud-Sync abgeschlossen ✅ (PC & Handy sind jetzt auf demselben Stand).";
-
     } catch (err) {
         console.error(err);
-        const statusEl = document.getElementById("cloudStatus");
-        if (statusEl) {
-            statusEl.innerText = "Cloud-Sync fehlgeschlagen: " + err.message;
-        }
+        statusEl.innerText = "Cloud-Sync fehlgeschlagen: " + err.message;
     }
 }
 
@@ -871,11 +769,6 @@ window.addEventListener("DOMContentLoaded", () => {
         learnCard.addEventListener("mouseup", onCardMouseUp);
     }
 
-    // Richtung-Umschalter
-    const dirRadios = document.querySelectorAll("input[name='learnDirection']");
-    dirRadios.forEach(radio => {
-        radio.addEventListener("change", () => {
-            learnDirection = radio.value;
-        });
-    });
+    // Richtung initial aus UI setzen
+    updateLearnDirectionFromUI();
 });
