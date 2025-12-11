@@ -187,7 +187,7 @@
             padding: 0 5px;
         }
 
-        /* Punkte-Historie oben links */
+        /* Punkte-Historie auf der Karte */
         #cardHistoryDots {
             position: absolute;
             top: 6px;
@@ -209,6 +209,18 @@
 
         .dot.wrong {
             background: #e53935;
+        }
+
+        /* Punkte in der Tabelle (größer) */
+        .history-dots-table {
+            display: flex;
+            gap: 4px;
+            align-items: center;
+        }
+
+        .dot.large {
+            width: 12px;
+            height: 12px;
         }
 
         #cardStatus {
@@ -255,15 +267,18 @@
             background: #3ba55d;
         }
 
-        /* Schwierigkeit einfärben in Tabelle */
-        .difficulty-easy {
-            background-color: #e8f5e9;
+        /* Farben nach % richtig */
+        .difficulty-very-bad {   /* < 40% */
+            background-color: #ef9a9a;
         }
-        .difficulty-medium {
-            background-color: #fff8e1;
+        .difficulty-bad {        /* 40–70% */
+            background-color: #ffcdd2;
         }
-        .difficulty-hard {
-            background-color: #ffebee;
+        .difficulty-good {       /* 70–90% */
+            background-color: #c8e6c9;
+        }
+        .difficulty-very-good {  /* 90–100% */
+            background-color: #a5d6a7;
         }
 
         #cloudStatus {
@@ -361,7 +376,7 @@
                     <th>Richtig</th>
                     <th>Falsch</th>
                     <th>% richtig</th>
-                    <th>Schwierigkeit</th>
+                    <th>Letzte Abfragen</th>
                 </tr>
             </thead>
             <tbody id="vocabTableBody">
