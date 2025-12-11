@@ -83,6 +83,10 @@
             background-color: #eee;
         }
 
+        .hidden {
+            display: none;
+        }
+
         /* Overlay für Lernkarten */
         .overlay {
             position: fixed;
@@ -130,7 +134,6 @@
         }
 
         .card-container {
-            perspective: 1000px;
             margin-top: 10px;
             margin-bottom: 10px;
         }
@@ -140,40 +143,42 @@
             height: 180px;
             margin: 0 auto;
             position: relative;
-            transform-style: preserve-3d;
-            transition: transform 0.5s;
             border-radius: 12px;
             box-shadow: 0 4px 12px rgba(0,0,0,0.2);
             overflow: hidden;
+            background: #ffffff;
+            transition: transform 0.25s ease;
         }
 
-        .learn-card.flipped {
-            transform: rotateY(180deg);
+        .learn-card.card-correct {
+            background: #c8f7c5;
+        }
+
+        .learn-card.card-wrong {
+            background: #f8c4c4;
         }
 
         .card-face {
             position: absolute;
             inset: 0;
-            backface-visibility: hidden;
             display: flex;
             flex-direction: column;
             justify-content: center;
             align-items: center;
             padding: 10px;
             box-sizing: border-box;
-            background: #ffffff;
         }
 
         .card-back {
-            transform: rotateY(180deg);
+            display: none;
         }
 
-        .learn-card.card-correct .card-face {
-            background: #c8f7c5;
+        .learn-card.show-back .card-front {
+            display: none;
         }
 
-        .learn-card.card-wrong .card-face {
-            background: #f8c4c4;
+        .learn-card.show-back .card-back {
+            display: flex;
         }
 
         #cardFrontText, #cardBackText {
@@ -229,6 +234,26 @@
         #summaryContainer th, #summaryContainer td {
             padding: 4px;
         }
+
+        /* Buttons im Overlay */
+        .card-buttons-row {
+            display: flex;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 6px;
+        }
+
+        #btnFlipCard {
+            background: #0078ff;
+        }
+
+        #btnMarkWrong {
+            background: #e53935;
+        }
+
+        #btnMarkCorrect {
+            background: #3ba55d;
+        }
     </style>
 </head>
 
@@ -250,8 +275,11 @@
     <!-- Lernen -->
     <div class="card-block">
         <h2>Lernen (Stapel von 10 Karten)</h2>
-        <p>Es wird ein Stapel von bis zu 10 Karten erstellt. Jede Karte kann per Wischen bewertet werden:
-            <br>Rechts wischen = gewusst (grün), Links wischen = nicht gewusst (rot). Weiter zur nächsten Karte erst nach Klick auf „Weiter“.
+        <p>
+            Es wird ein Stapel von bis zu 10 Karten erstellt. Zuerst siehst du das deutsche Wort,
+            dann kannst du auf „Umdrehen“ klicken. Auf der Rückseite entscheidest du mit
+            „Gewusst“ oder „Nicht gewusst“. Der Stapel geht erst weiter, wenn du „Weiter“ klickst.
+            Auf der Rückseite kannst du zusätzlich nach links / rechts wischen.
         </p>
         <button id="btnStartStack">Stapel (10 Karten) starten</button>
     </div>
@@ -315,8 +343,21 @@
                         </div>
                     </div>
                 </div>
+
                 <div id="cardStatus"></div>
-                <button id="btnNextCard">Weiter</button>
+
+                <!-- Buttons auf Vorderseite -->
+                <div id="cardButtonsFront" class="card-buttons-row">
+                    <button id="btnFlipCard">Umdrehen</button>
+                </div>
+
+                <!-- Buttons auf Rückseite -->
+                <div id="cardButtonsBack" class="card-buttons-row hidden">
+                    <button id="btnMarkWrong">Nicht gewusst</button>
+                    <button id="btnMarkCorrect">Gewusst</button>
+                </div>
+
+                <button id="btnNextCard" disabled>Weiter</button>
             </div>
 
             <div id="summaryContainer" class="hidden"></div>
