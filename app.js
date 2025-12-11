@@ -13,10 +13,13 @@ let currentSessionId = 0;
 let learnStack = [];       // Array von Indizes in vocabList
 let learnStackPos = -1;    // Position im Stapel
 let currentEntry = null;   // aktuell abgefragte Vokabel
+let currentResult = null;  // true = richtig, false = falsch, null = nicht bewertet
 
-// Mündliche Abfrage
-let oralMode = false;          // true = Mündliche Abfrage aktiv
-let oralSolutionShown = false; // ob für aktuelle Karte die Lösung gezeigt wurde
+let stackResults = [];     // Ergebnisliste für Zusammenfassung
+
+// Swipe
+let touchStartX = null;
+const SWIPE_THRESHOLD = 50;
 
 // ---------------------
 // Session-Verwaltung
@@ -41,6 +44,7 @@ function initStatsForEntry(entry) {
     s.timesShown = s.timesShown || 0;
     if (!Array.isArray(s.sessions)) s.sessions = [];
     s.lastSession = s.lastSession || null;
+    if (!Array.isArray(s.history)) s.history = []; // Verlauf der letzten Antworten
     return entry;
 }
 
@@ -137,7 +141,8 @@ function createEntry(de, es) {
             wrong: 0,
             timesShown: 0,
             sessions: [],
-            lastSession: null
+            lastSession: null,
+            history: []
         }
     };
 }
@@ -252,67 +257,130 @@ function buildLearnStack(size = 10) {
     return stack;
 }
 
-function updateLearnButtonsState(active) {
-    const btnCheck = document.getElementById("btnCheck");
-    const btnDontKnow = document.getElementById("btnDontKnow");
-    const btnSkip = document.getElementById("btnSkip");
-    const btnOral = document.getElementById("btnOral");
+function openOverlay() {
+    const overlay = document.getElementById("learnOverlay");
+    const cardArea = document.getElementById("cardArea");
+    const summaryContainer = document.getElementById("summaryContainer");
+    if (!overlay || !cardArea || !summaryContainer) return;
 
-    if (btnCheck) btnCheck.disabled = !active;
-    if (btnDontKnow) btnDontKnow.disabled = !active;
-    if (btnSkip) btnSkip.disabled = !active;
-    if (btnOral) btnOral.disabled = !active;
+    overlay.classList.remove("hidden");
+    cardArea.classList.remove("hidden");
+    summaryContainer.classList.add("hidden");
+    summaryContainer.innerHTML = "";
+}
+
+function closeOverlay() {
+    const overlay = document.getElementById("learnOverlay");
+    if (!overlay) return;
+    overlay.classList.add("hidden");
+
+    // Stapel zurücksetzen
+    learnStack = [];
+    learnStackPos = -1;
+    currentEntry = null;
+    currentResult = null;
+    stackResults = [];
+}
+
+// Punkte-Historie aktualisieren
+function updateHistoryDots(entry) {
+    const dotsContainer = document.getElementById("cardHistoryDots");
+    if (!dotsContainer) return;
+
+    dotsContainer.innerHTML = "";
+    const s = entry.stats || {};
+    const history = Array.isArray(s.history) ? s.history : [];
+
+    const last5 = history.slice(-5);
+    // Wir wollen immer 5 Punkte anzeigen
+    const totalDots = 5;
+    const startIndex = Math.max(0, last5.length - totalDots);
+
+    const display = last5.slice(startIndex);
+
+    // ggf. vorne mit "null" auffüllen
+    const padding = totalDots - display.length;
+    for (let i = 0; i < padding; i++) {
+        const span = document.createElement("span");
+        span.className = "dot";
+        dotsContainer.appendChild(span);
+    }
+
+    display.forEach(result => {
+        const span = document.createElement("span");
+        span.className = "dot";
+        if (result === true) span.classList.add("correct");
+        if (result === false) span.classList.add("wrong");
+        dotsContainer.appendChild(span);
+    });
 }
 
 function showCurrentCard() {
-    const questionEl = document.getElementById("learnQuestion");
-    const inputEl = document.getElementById("learnInput");
-    const infoEl = document.getElementById("learnInfo");
+    const learnCard = document.getElementById("learnCard");
+    const frontText = document.getElementById("cardFrontText");
+    const backText = document.getElementById("cardBackText");
+    const statusEl = document.getElementById("cardStatus");
+    const overlayTitle = document.getElementById("overlayTitle");
+    const cardArea = document.getElementById("cardArea");
+    const summaryContainer = document.getElementById("summaryContainer");
 
-    if (!questionEl || !inputEl || !infoEl) return;
+    if (!learnCard || !frontText || !backText || !statusEl || !overlayTitle || !cardArea || !summaryContainer) return;
 
-    oralSolutionShown = false; // bei neuer Karte
+    // Wenn Stapel durch ist → Zusammenfassung anzeigen
+    if (!learnStack || learnStack.length === 0 || learnStackPos < 0 || learnStackPos >= learnStack.length) {
+        cardArea.classList.add("hidden");
+        summaryContainer.classList.remove("hidden");
+        statusEl.innerText = "";
+        overlayTitle.innerText = "Stapel beendet";
 
-    if (!learnStack || learnStack.length === 0) {
-        questionEl.innerText = "Noch kein Lernstapel gestartet.";
-        inputEl.value = "";
-        infoEl.innerText = "";
-        updateLearnButtonsState(false);
-        currentEntry = null;
+        // Zusammenfassungstabelle bauen
+        let html = "<h3>Zusammenfassung</h3>";
+        html += "<table><thead><tr><th>#</th><th>Spanisch</th><th>Deutsch</th><th>Antwort</th></tr></thead><tbody>";
+
+        stackResults.forEach((res, index) => {
+            html += "<tr>";
+            html += `<td>${index + 1}</td>`;
+            html += `<td>${res.es || ""}</td>`;
+            html += `<td>${res.de || ""}</td>`;
+            if (res.result === true) {
+                html += `<td>Richtig</td>`;
+            } else if (res.result === false) {
+                html += `<td>Falsch</td>`;
+            } else {
+                html += `<td>Übersprungen</td>`;
+            }
+            html += "</tr>";
+        });
+
+        html += "</tbody></table>";
+        summaryContainer.innerHTML = html;
         return;
     }
 
-    if (learnStackPos < 0 || learnStackPos >= learnStack.length) {
-        questionEl.innerText = "Stapel abgeschlossen! Du kannst einen neuen Stapel starten.";
-        inputEl.value = "";
-        infoEl.innerText = "";
-        updateLearnButtonsState(false);
-        currentEntry = null;
-        return;
-    }
+    // Karte zurücksetzen
+    learnCard.classList.remove("flipped", "card-correct", "card-wrong");
+    statusEl.innerText = "";
+    overlayTitle.innerText = `Karte ${learnStackPos + 1} von ${learnStack.length}`;
+    currentResult = null;
 
     const idx = learnStack[learnStackPos];
     const entry = vocabList[idx];
-    currentEntry = entry;
+    currentEntry = initStatsForEntry(entry);
 
-    const s = entry.stats;
+    const s = currentEntry.stats;
     s.timesShown = (s.timesShown || 0) + 1;
     if (!Array.isArray(s.sessions)) s.sessions = [];
     if (!s.sessions.includes(currentSessionId)) {
         s.sessions.push(currentSessionId);
     }
     s.lastSession = currentSessionId;
+
     saveVocab();
     refreshStats();
 
-    questionEl.innerText = `Karte ${learnStackPos + 1} von ${learnStack.length}: Was heißt „${entry.de}“ auf Spanisch?`;
-    inputEl.value = "";
-    inputEl.focus();
-    infoEl.innerText = oralMode
-        ? "Mündliche Abfrage: Denk dir die Übersetzung und klicke dann auf „Mündliche Abfrage“, um die Lösung zu sehen."
-        : "Gib deine Antwort ein oder nutze „Weiß ich nicht“ / „Überspringen“.";
-
-    updateLearnButtonsState(true);
+    frontText.innerText = currentEntry.de || "";
+    backText.innerText = currentEntry.es || "";
+    updateHistoryDots(currentEntry);
 }
 
 function startLearnStack() {
@@ -328,107 +396,114 @@ function startLearnStack() {
         return;
     }
 
+    stackResults = [];
     learnStackPos = 0;
+    openOverlay();
     showCurrentCard();
 }
 
-// nach Bewertung zur nächsten Karte
-function goToNextCard() {
+// Ergebnis (richtig/falsch) setzen, Karte flippen & einfärben
+function applyResult(isCorrect) {
+    if (!currentEntry) return;
+    if (currentResult !== null) return; // schon bewertet
+
+    const learnCard = document.getElementById("learnCard");
+    const statusEl = document.getElementById("cardStatus");
+    if (!learnCard || !statusEl) return;
+
+    currentResult = isCorrect;
+
+    const s = currentEntry.stats;
+    if (!Array.isArray(s.history)) s.history = [];
+
+    if (isCorrect) {
+        s.correct = (s.correct || 0) + 1;
+        s.history.push(true);
+        statusEl.innerText = "Richtig! ✅";
+        learnCard.classList.add("card-correct");
+    } else {
+        s.wrong = (s.wrong || 0) + 1;
+        s.history.push(false);
+        statusEl.innerText = `Falsch. Richtig wäre: ${currentEntry.es}`;
+        learnCard.classList.add("card-wrong");
+    }
+
+    // Verlauf begrenzen
+    if (s.history.length > 50) {
+        s.history = s.history.slice(-50);
+    }
+
+    saveVocab();
+    refreshStats();
+    updateHistoryDots(currentEntry);
+    learnCard.classList.add("flipped");
+}
+
+// Nächste Karte nach Klick auf "Weiter"
+function nextCard() {
+    if (!learnStack || learnStack.length === 0) {
+        closeOverlay();
+        return;
+    }
+
+    if (currentEntry) {
+        stackResults.push({
+            de: currentEntry.de,
+            es: currentEntry.es,
+            result: currentResult // true, false oder null (wenn nicht gewischt)
+        });
+    }
+
     learnStackPos++;
     showCurrentCard();
 }
 
-// Antwort prüfen (Schriftlich oder als „Gewusst“ in mündlicher Abfrage)
-function checkAnswer() {
-    if (!currentEntry) {
-        alert("Kein aktuelles Wort – starte zuerst einen Lernstapel.");
-        return;
+// ---------------------
+// Swipe-Event-Handler
+// ---------------------
+function onCardTouchStart(e) {
+    const touch = e.touches[0];
+    touchStartX = touch.clientX;
+}
+
+function onCardTouchEnd(e) {
+    if (touchStartX === null) return;
+    const touch = e.changedTouches[0];
+    const dx = touch.clientX - touchStartX;
+    touchStartX = null;
+
+    if (Math.abs(dx) < SWIPE_THRESHOLD) {
+        return; // zu kleine Bewegung
     }
 
-    const inputEl = document.getElementById("learnInput");
-    const infoEl = document.getElementById("learnInfo");
-
-    if (!inputEl || !infoEl) return;
-
-    const s = currentEntry.stats;
-
-    if (oralMode) {
-        // mündliche Abfrage: „Gewusst“
-        s.correct = (s.correct || 0) + 1;
-        infoEl.innerText = `Als gewusst markiert. Richtig wäre: ${currentEntry.es}`;
-        saveVocab();
-        refreshStats();
-        goToNextCard();
-        return;
-    }
-
-    const given = inputEl.value.toLowerCase().trim();
-    if (given === "") {
-        infoEl.innerText = "Bitte eine Antwort eingeben oder „Weiß ich nicht“ wählen.";
-        return;
-    }
-
-    const correctSolution = currentEntry.es.toLowerCase().trim();
-
-    if (given === correctSolution) {
-        s.correct = (s.correct || 0) + 1;
-        infoEl.innerText = "Richtig! ✅";
+    if (dx > 0) {
+        // nach rechts = gewusst
+        applyResult(true);
     } else {
-        s.wrong = (s.wrong || 0) + 1;
-        infoEl.innerText = `Falsch. Richtig wäre: ${currentEntry.es}`;
+        // nach links = nicht gewusst
+        applyResult(false);
     }
-
-    saveVocab();
-    refreshStats();
-    goToNextCard();
 }
 
-// Weiß ich nicht → falsch, Lösung anzeigen, nächste Karte
-function dontKnow() {
-    if (!currentEntry) {
-        alert("Kein aktuelles Wort – starte zuerst einen Lernstapel.");
+// Maus-Unterstützung (optional, für PC)
+let mouseDownX = null;
+function onCardMouseDown(e) {
+    mouseDownX = e.clientX;
+}
+
+function onCardMouseUp(e) {
+    if (mouseDownX === null) return;
+    const dx = e.clientX - mouseDownX;
+    mouseDownX = null;
+
+    if (Math.abs(dx) < SWIPE_THRESHOLD) {
         return;
     }
 
-    const infoEl = document.getElementById("learnInfo");
-    if (!infoEl) return;
-
-    const s = currentEntry.stats;
-    s.wrong = (s.wrong || 0) + 1;
-
-    infoEl.innerText = `Okay, du wusstest es nicht. Richtig wäre: ${currentEntry.es}`;
-    saveVocab();
-    refreshStats();
-    goToNextCard();
-}
-
-// Überspringen → nichts werten, nur weiter
-function skipCard() {
-    if (!learnStack || learnStack.length === 0) {
-        alert("Kein Lernstapel aktiv.");
-        return;
-    }
-    goToNextCard();
-}
-
-// Mündliche Abfrage: Lösung ein-/ausblenden
-function oralShowSolution() {
-    if (!currentEntry) {
-        alert("Kein aktuelles Wort – starte zuerst einen Lernstapel.");
-        return;
-    }
-
-    const infoEl = document.getElementById("learnInfo");
-    if (!infoEl) return;
-
-    oralMode = true;
-
-    if (!oralSolutionShown) {
-        infoEl.innerText = `Lösung: ${currentEntry.es}\nMarkiere danach mit „Antwort prüfen (Gewusst)“ oder „Weiß ich nicht“.`;
-        oralSolutionShown = true;
+    if (dx > 0) {
+        applyResult(true);
     } else {
-        // falls man klicken will, ohne zu wechseln – einfach nochmal Hinweis
-        infoEl.innerText = `Lösung: ${currentEntry.es}\nNutze jetzt „Antwort prüfen (Gewusst)“ oder „Weiß ich nicht“.`;
+        applyResult(false);
     }
 }
 
@@ -528,19 +603,22 @@ window.addEventListener("DOMContentLoaded", () => {
 
     const btnAdd = document.getElementById("btnAdd");
     const btnStartStack = document.getElementById("btnStartStack");
-    const btnCheck = document.getElementById("btnCheck");
-    const btnDontKnow = document.getElementById("btnDontKnow");
-    const btnSkip = document.getElementById("btnSkip");
-    const btnOral = document.getElementById("btnOral");
+    const btnNextCard = document.getElementById("btnNextCard");
+    const btnCloseOverlay = document.getElementById("btnCloseOverlay");
+    const learnCard = document.getElementById("learnCard");
     const btnAi = document.getElementById("btnAi");
 
     if (btnAdd) btnAdd.addEventListener("click", addWord);
     if (btnStartStack) btnStartStack.addEventListener("click", startLearnStack);
-    if (btnCheck) btnCheck.addEventListener("click", checkAnswer);
-    if (btnDontKnow) btnDontKnow.addEventListener("click", dontKnow);
-    if (btnSkip) btnSkip.addEventListener("click", skipCard);
-    if (btnOral) btnOral.addEventListener("click", oralShowSolution);
+    if (btnNextCard) btnNextCard.addEventListener("click", nextCard);
+    if (btnCloseOverlay) btnCloseOverlay.addEventListener("click", closeOverlay);
     if (btnAi) btnAi.addEventListener("click", fetchAiVocab);
 
-    updateLearnButtonsState(false);
+    // Swipe-Events
+    if (learnCard) {
+        learnCard.addEventListener("touchstart", onCardTouchStart, { passive: true });
+        learnCard.addEventListener("touchend", onCardTouchEnd, { passive: true });
+        learnCard.addEventListener("mousedown", onCardMouseDown);
+        learnCard.addEventListener("mouseup", onCardMouseUp);
+    }
 });
