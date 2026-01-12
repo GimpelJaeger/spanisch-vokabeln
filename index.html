@@ -1,430 +1,345 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-    <meta charset="UTF-8" />
-    <title>Vokabeltrainer</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            margin: 20px;
-            background: #f5f5f5;
-        }
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Vokabeltrainer</title>
 
-        h1 {
-            text-align: center;
-        }
+  <link rel="manifest" href="manifest.json">
 
-        .card-block {
-            background: white;
-            padding: 15px;
-            margin-bottom: 20px;
-            border-radius: 8px;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
-        }
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      margin: 16px;
+      background: #f5f5f5;
+    }
 
-        label {
-            font-weight: bold;
-        }
+    h1 { text-align: center; margin: 10px 0 18px; }
 
-        input[type="text"],
-        input[type="number"] {
-            width: 220px;
-            padding: 6px;
-            margin-right: 10px;
-            margin-top: 5px;
-        }
+    .card-block {
+      background: white;
+      padding: 14px;
+      margin-bottom: 14px;
+      border-radius: 10px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+    }
 
-        button {
-            padding: 8px 12px;
-            margin-top: 10px;
-            margin-right: 6px;
-            background: #0078ff;
-            border: none;
-            color: white;
-            cursor: pointer;
-            border-radius: 6px;
-            font-size: 14px;
-        }
+    label { font-weight: bold; }
 
-        button:disabled {
-            opacity: 0.5;
-            cursor: default;
-        }
+    input[type="text"], input[type="number"] {
+      width: 240px;
+      max-width: 90%;
+      padding: 10px;
+      margin-top: 6px;
+      border-radius: 10px;
+      border: 1px solid #ddd;
+      font-size: 16px;
+    }
 
-        button:hover:not(:disabled) {
-            background: #005fcc;
-        }
+    button {
+      padding: 10px 12px;
+      margin-top: 10px;
+      margin-right: 8px;
+      background: #0078ff;
+      border: none;
+      color: white;
+      cursor: pointer;
+      border-radius: 10px;
+      font-size: 15px;
+      touch-action: manipulation;
+    }
 
-        #aiStatus {
-            margin-top: 10px;
-            font-style: italic;
-            color: #333;
-        }
+    button:disabled { opacity: 0.5; cursor: default; }
+    button:hover:not(:disabled) { background: #005fcc; }
 
-        #stats {
-            font-weight: bold;
-            margin-top: 10px;
-        }
+    #aiStatus {
+      margin-top: 10px;
+      font-style: italic;
+      color: #333;
+    }
 
-        table {
-            width: 100%;
-            border-collapse: collapse;
-            margin-top: 10px;
-            font-size: 14px;
-        }
+    #stats { font-weight: bold; margin-top: 10px; }
 
-        th, td {
-            border: 1px solid #ddd;
-            padding: 6px 8px;
-            text-align: left;
-        }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+      font-size: 14px;
+      background: white;
+    }
 
-        th {
-            background-color: #eee;
-        }
+    th, td {
+      border: 1px solid #ddd;
+      padding: 8px 10px;
+      text-align: left;
+    }
 
-        .hidden {
-            display: none;
-        }
+    th { background-color: #eee; }
 
-        /* Overlay für Lernkarten */
-        .overlay {
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.6);
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            z-index: 9999;
-        }
+    .hidden { display: none; }
 
-        .overlay.hidden {
-            display: none;
-        }
+    /* Overlay */
+    .overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.65);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      padding: 14px;
+    }
+    .overlay.hidden { display: none; }
 
-        .overlay-inner {
-            background: #ffffff;
-            padding: 15px;
-            border-radius: 10px;
-            width: 320px;
-            max-width: 90vw;
-            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
-            position: relative;
-        }
+    .overlay-inner {
+      background: #ffffff;
+      border-radius: 14px;
+      width: min(560px, 96vw);
+      max-height: 92vh;
+      overflow: auto;
+      box-shadow: 0 8px 30px rgba(0,0,0,0.35);
+      position: relative;
+      padding: 14px;
+    }
 
-        .overlay-title {
-            font-size: 14px;
-            margin-bottom: 8px;
-            color: #555;
-        }
+    .overlay-title {
+      font-size: 14px;
+      color: #555;
+      margin-bottom: 8px;
+    }
 
-        .overlay-close {
-            position: absolute;
-            top: 8px;
-            right: 8px;
-            border: none;
-            background: transparent;
-            font-size: 20px;
-            cursor: pointer;
-            color: #666;
-        }
+    .overlay-close {
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      border: none;
+      background: transparent;
+      font-size: 24px;
+      cursor: pointer;
+      color: #666;
+      padding: 6px 10px;
+    }
 
-        .overlay-close:hover {
-            color: #000;
-        }
+    .overlay-close:hover { color: #000; }
 
-        .card-container {
-            margin-top: 10px;
-            margin-bottom: 10px;
-        }
+    .card-container { margin: 8px 0 10px; }
 
-        .learn-card {
-            width: 280px;
-            height: 180px;
-            margin: 0 auto;
-            position: relative;
-            border-radius: 12px;
-            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
-            overflow: hidden;
-            background: #ffffff;
-            transition: transform 0.25s ease;
-        }
+    .learn-card {
+      width: min(520px, 92vw);
+      height: min(340px, 52vh);
+      margin: 0 auto;
+      position: relative;
+      border-radius: 16px;
+      box-shadow: 0 10px 22px rgba(0,0,0,0.18);
+      overflow: hidden;
+      background: #ffffff;
+      user-select: none;
+      touch-action: pan-y; /* swipe horizontal ok */
+    }
 
-        .learn-card.card-correct {
-            background: #c8f7c5;
-        }
+    .learn-card.card-correct { background: #c8f7c5; }
+    .learn-card.card-wrong { background: #f8c4c4; }
 
-        .learn-card.card-wrong {
-            background: #f8c4c4;
-        }
+    .card-face {
+      position: absolute;
+      inset: 0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      padding: 18px;
+      box-sizing: border-box;
+      text-align: center;
+    }
 
-        .card-face {
-            position: absolute;
-            inset: 0;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
-            padding: 10px;
-            box-sizing: border-box;
-        }
+    .card-back { display: none; }
+    .learn-card.show-back .card-front { display: none; }
+    .learn-card.show-back .card-back { display: flex; }
 
-        .card-back {
-            display: none;
-        }
+    #cardFrontText, #cardBackText {
+      font-size: clamp(26px, 4.4vw, 44px);
+      line-height: 1.15;
+      padding: 0 6px;
+    }
 
-        .learn-card.show-back .card-front {
-            display: none;
-        }
+    /* Punkte oben links auf Karte */
+    #cardHistoryDots {
+      position: absolute;
+      top: 10px;
+      left: 12px;
+      display: flex;
+      gap: 6px;
+      z-index: 2;
+    }
 
-        .learn-card.show-back .card-back {
-            display: flex;
-        }
+    .dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #ddd;
+    }
+    .dot.correct { background: #2e7d32; }
+    .dot.wrong { background: #c62828; }
 
-        #cardFrontText, #cardBackText {
-            font-size: 24px;
-            text-align: center;
-            padding: 0 5px;
-        }
+    #cardStatus {
+      font-size: 14px;
+      margin-top: 6px;
+      min-height: 18px;
+      text-align: center;
+    }
 
-        /* Punkte-Historie auf der Karte */
-        #cardHistoryDots {
-            position: absolute;
-            top: 6px;
-            left: 8px;
-            display: flex;
-            gap: 4px;
-        }
+    .card-buttons-row {
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      margin-top: 8px;
+      flex-wrap: wrap;
+    }
 
-        .dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            background: #ddd;
-        }
+    #btnFlipCard { background: #0078ff; }
+    #btnMarkWrong { background: #c62828; }
+    #btnMarkCorrect { background: #2e7d32; }
 
-        .dot.correct {
-            background: #3ba55d;
-        }
+    #btnNextCard { width: 100%; margin-top: 10px; }
 
-        .dot.wrong {
-            background: #e53935;
-        }
+    /* Tabelle: dots */
+    .history-dots-table { display: flex; gap: 6px; align-items: center; }
+    .dot.large { width: 12px; height: 12px; }
 
-        /* Punkte in der Tabelle (größer) */
-        .history-dots-table {
-            display: flex;
-            gap: 4px;
-            align-items: center;
-        }
+    /* Farben nach % richtig */
+    .difficulty-very-bad { background-color: #ef9a9a; }   /* <40% */
+    .difficulty-bad { background-color: #ffcdd2; }        /* 40–70% */
+    .difficulty-good { background-color: #c8e6c9; }       /* 70–90% */
+    .difficulty-very-good { background-color: #a5d6a7; }  /* 90–100% */
 
-        .dot.large {
-            width: 12px;
-            height: 12px;
-        }
-
-        #cardStatus {
-            font-size: 13px;
-            margin-top: 6px;
-            min-height: 18px;
-            text-align: center;
-        }
-
-        #btnNextCard {
-            width: 100%;
-            margin-top: 10px;
-        }
-
-        #summaryContainer {
-            margin-top: 10px;
-        }
-
-        #summaryContainer table {
-            font-size: 12px;
-        }
-
-        #summaryContainer th, #summaryContainer td {
-            padding: 4px;
-        }
-
-        /* Buttons im Overlay */
-        .card-buttons-row {
-            display: flex;
-            justify-content: center;
-            gap: 8px;
-            margin-top: 6px;
-        }
-
-        #btnFlipCard {
-            background: #0078ff;
-        }
-
-        #btnMarkWrong {
-            background: #e53935;
-        }
-
-        #btnMarkCorrect {
-            background: #3ba55d;
-        }
-
-        /* Farben nach % richtig */
-        .difficulty-very-bad {   /* < 40% */
-            background-color: #ef9a9a;
-        }
-        .difficulty-bad {        /* 40–70% */
-            background-color: #ffcdd2;
-        }
-        .difficulty-good {       /* 70–90% */
-            background-color: #c8e6c9;
-        }
-        .difficulty-very-good {  /* 90–100% */
-            background-color: #a5d6a7;
-        }
-
-        #cloudStatus {
-            margin-top: 6px;
-            font-size: 13px;
-            font-style: italic;
-        }
-    </style>
+    /* Mobile extra */
+    @media (max-width: 600px) {
+      body { margin: 12px; }
+      .overlay-inner { width: 98vw; max-height: 94vh; }
+      th, td { padding: 8px 8px; }
+    }
+  </style>
 </head>
 
 <body>
-    <h1>Vokabeltrainer</h1>
+  <h1>Vokabeltrainer</h1>
 
-    <!-- Manuelles Hinzufügen -->
-    <div class="card-block">
-        <h2>Vokabel hinzufügen</h2>
-        <label>Deutsch:</label><br />
-        <input id="inputDe" type="text" placeholder="Haus" /><br />
+  <div class="card-block">
+    <h2>Vokabel hinzufügen</h2>
+    <label>Deutsch:</label><br />
+    <input id="inputDe" type="text" placeholder="Haus" /><br /><br />
 
-        <label>Spanisch:</label><br />
-        <input id="inputEs" type="text" placeholder="casa" /><br />
+    <label>Spanisch:</label><br />
+    <input id="inputEs" type="text" placeholder="casa" /><br />
 
-        <button id="btnAdd">Hinzufügen</button>
+    <button id="btnAdd">Hinzufügen</button>
+  </div>
+
+  <div class="card-block">
+    <h2>Lernen (Stapel von 10 Karten)</h2>
+    <p style="margin-top:0;">
+      Ablauf: Vorderseite → <b>Umdrehen</b> → bewerten (<b>Gewusst</b> / <b>Nicht gewusst</b>) → <b>Weiter</b>.<br>
+      Am Ende werden <b>falsche Karten einmal wiederholt</b>.
+    </p>
+
+    <div>
+      <strong>Richtung:</strong><br />
+      <label><input type="radio" name="learnDirection" value="DE_ES" checked> Deutsch → Spanisch</label>
+      &nbsp;&nbsp;
+      <label><input type="radio" name="learnDirection" value="ES_DE"> Spanisch → Deutsch</label>
+      &nbsp;&nbsp;
+      <label><input type="radio" name="learnDirection" value="MIX"> Gemischt</label>
     </div>
 
-    <!-- Lernen -->
-    <div class="card-block">
-        <h2>Lernen (Stapel von 10 Karten)</h2>
-
-        <p>
-            Es wird ein Stapel von bis zu 10 Karten erstellt.
-            Zuerst siehst du die Vorderseite, nach „Umdrehen“ die Übersetzung.
-            Auf der Rückseite entscheidest du mit „Gewusst“ oder „Nicht gewusst“,
-            oder per Wischen (rechts = gewusst, links = nicht gewusst).
-        </p>
-
-        <div>
-            <strong>Richtung:</strong><br />
-            <label>
-                <input type="radio" name="learnDirection" value="DE_ES" checked>
-                Deutsch → Spanisch
-            </label>
-            &nbsp;&nbsp;
-            <label>
-                <input type="radio" name="learnDirection" value="ES_DE">
-                Spanisch → Deutsch
-            </label>
-        </div>
-
-        <div style="margin-top: 10px;">
-            <button id="btnStartStack">Stapel (10 Karten) starten</button>
-            <button id="btnStartHardStack">Stapel (schwierige Wörter)</button>
-        </div>
+    <div style="margin-top:10px;">
+      <label style="font-weight:normal;">
+        <input type="checkbox" id="swipeOnly">
+        Swipe-Only (ohne Buttons)
+      </label>
     </div>
 
-    <!-- KI-Vokabelvorschläge -->
-    <div class="card-block">
-        <h2>KI-Vokabeln generieren</h2>
-
-        <label>Thema:</label><br />
-        <input id="aiTopic" type="text" placeholder="Essen, Haushalt, Reisen ..." /><br />
-
-        <label>Anzahl:</label><br />
-        <input id="aiCount" type="number" min="1" max="50" value="10" /><br />
-
-        <button id="btnAi">KI-Vokabeln hinzufügen</button>
-
-        <div id="aiStatus"></div>
+    <div style="margin-top: 10px;">
+      <button id="btnStartStack">Stapel (10 Karten) starten</button>
+      <button id="btnStartHardStack">Stapel (schwierige Wörter)</button>
     </div>
+  </div>
 
-    <!-- Statistik -->
-    <div class="card-block">
-        <h2>Statistik</h2>
-        <div id="stats">Gesamt: 0</div>
+  <div class="card-block">
+    <h2>KI-Vokabeln generieren</h2>
 
-        <h3>Cloud-Sync</h3>
-        <p>
-            Hier kannst du deine Vokabeln mit Supabase synchronisieren
-            (PC und Handy teilen sich dann denselben Stand).
-        </p>
-        <button id="btnCloudSync">Mit Cloud synchronisieren</button>
-        <div id="cloudStatus"></div>
+    <label>Thema:</label><br />
+    <input id="aiTopic" type="text" placeholder="Essen, Haushalt, Reisen ..." /><br /><br />
+
+    <label>Anzahl:</label><br />
+    <input id="aiCount" type="number" min="1" max="50" value="10" /><br />
+
+    <button id="btnAi">KI-Vokabeln hinzufügen</button>
+    <div id="aiStatus"></div>
+  </div>
+
+  <div class="card-block">
+    <h2>Statistik</h2>
+    <div id="stats">Gesamt: 0</div>
+    <div style="font-size:13px; color:#555; margin-top:6px;">
+      Offline-Modus ist aktiv (PWA Cache). KI-Generierung braucht Internet.
     </div>
+  </div>
 
-    <!-- Vokabel-Liste -->
-    <div class="card-block">
-        <h2>Alle Vokabeln (alphabetisch nach Spanisch)</h2>
-        <table>
-            <thead>
-                <tr>
-                    <th>#</th>
-                    <th>Spanisch</th>
-                    <th>Deutsch</th>
-                    <th>Gezeigt</th>
-                    <th>Richtig</th>
-                    <th>Falsch</th>
-                    <th>% richtig</th>
-                    <th>Letzte Abfragen</th>
-                </tr>
-            </thead>
-            <tbody id="vocabTableBody">
-                <!-- wird per JavaScript gefüllt -->
-            </tbody>
-        </table>
-    </div>
+  <div class="card-block">
+    <h2>Alle Vokabeln (alphabetisch nach Spanisch)</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>#</th>
+          <th>Spanisch</th>
+          <th>Deutsch</th>
+          <th>Gezeigt</th>
+          <th>Richtig</th>
+          <th>Falsch</th>
+          <th>% richtig</th>
+          <th>Letzte Abfragen</th>
+        </tr>
+      </thead>
+      <tbody id="vocabTableBody"></tbody>
+    </table>
+  </div>
 
-    <!-- Overlay für Lernkarten -->
-    <div id="learnOverlay" class="overlay hidden">
-        <div class="overlay-inner">
-            <button id="btnCloseOverlay" class="overlay-close">×</button>
-            <div class="overlay-title" id="overlayTitle">Lernstapel</div>
+  <!-- Overlay -->
+  <div id="learnOverlay" class="overlay hidden">
+    <div class="overlay-inner">
+      <button id="btnCloseOverlay" class="overlay-close">×</button>
+      <div class="overlay-title" id="overlayTitle">Lernstapel</div>
 
-            <div id="cardArea">
-                <div class="card-container">
-                    <div id="learnCard" class="learn-card">
-                        <div class="card-face card-front">
-                            <div id="cardHistoryDots"></div>
-                            <div id="cardFrontText"></div>
-                        </div>
-                        <div class="card-face card-back">
-                            <div id="cardBackText"></div>
-                        </div>
-                    </div>
-                </div>
-
-                <div id="cardStatus"></div>
-
-                <!-- Buttons auf Vorderseite -->
-                <div id="cardButtonsFront" class="card-buttons-row">
-                    <button id="btnFlipCard">Umdrehen</button>
-                </div>
-
-                <!-- Buttons auf Rückseite -->
-                <div id="cardButtonsBack" class="card-buttons-row hidden">
-                    <button id="btnMarkWrong">Nicht gewusst</button>
-                    <button id="btnMarkCorrect">Gewusst</button>
-                </div>
-
-                <button id="btnNextCard" disabled>Weiter</button>
+      <div id="cardArea">
+        <div class="card-container">
+          <div id="learnCard" class="learn-card">
+            <div class="card-face card-front">
+              <div id="cardHistoryDots"></div>
+              <div id="cardFrontText"></div>
             </div>
-
-            <div id="summaryContainer" class="hidden"></div>
+            <div class="card-face card-back">
+              <div id="cardBackText"></div>
+            </div>
+          </div>
         </div>
-    </div>
 
-    <!-- App-Script -->
-    <script src="app.js"></script>
+        <div id="cardStatus"></div>
+
+        <div id="cardButtonsFront" class="card-buttons-row">
+          <button id="btnFlipCard">Umdrehen</button>
+        </div>
+
+        <div id="cardButtonsBack" class="card-buttons-row hidden">
+          <button id="btnMarkWrong">Nicht gewusst</button>
+          <button id="btnMarkCorrect">Gewusst</button>
+        </div>
+
+        <button id="btnNextCard" disabled>Weiter</button>
+      </div>
+
+      <div id="summaryContainer" class="hidden"></div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
 </body>
 </html>
