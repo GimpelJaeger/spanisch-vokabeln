@@ -1,0 +1,8 @@
+{
+  "name": "Vokabeltrainer",
+  "short_name": "Vokabeln",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f5f5f5",
+  "theme_color": "#0078ff"
+}
