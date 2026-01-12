@@ -161,6 +161,32 @@ function renderVocabTable() {
 
     tdHistory.appendChild(container);
 
+    // ✅ Löschen-Spalte
+    const tdDelete = document.createElement("td");
+    const btnDel = document.createElement("button");
+    btnDel.textContent = "×";
+    btnDel.style.background = "transparent";
+    btnDel.style.color = "#c62828";
+    btnDel.style.fontSize = "18px";
+    btnDel.style.padding = "4px 10px";
+    btnDel.style.borderRadius = "10px";
+    btnDel.style.border = "1px solid #ddd";
+    btnDel.style.cursor = "pointer";
+
+    btnDel.addEventListener("click", () => {
+      const ok = confirm(`„${entry.es}“ / „${entry.de}“ wirklich entfernen?`);
+      if (!ok) return;
+
+      // Entfernen nach deutschem Schlüssel (unique)
+      const key = (entry.de || "").toLowerCase();
+      vocabList = vocabList.filter(e => (e.de || "").toLowerCase() !== key);
+
+      saveVocab();
+      refreshStats();
+    });
+
+    tdDelete.appendChild(btnDel);
+
     tr.appendChild(tdIndex);
     tr.appendChild(tdEs);
     tr.appendChild(tdDe);
@@ -169,6 +195,7 @@ function renderVocabTable() {
     tr.appendChild(tdWrong);
     tr.appendChild(tdRate);
     tr.appendChild(tdHistory);
+    tr.appendChild(tdDelete);
 
     const cls = getRowClassForRate(rate);
     if (cls) tr.classList.add(cls);
